@@ -1,0 +1,17 @@
+target/
+.mvn/
+mvnw
+mvnw.cmd
+.git/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+*.log
+.env
+.env.*
+*.json
+!pom.xml
