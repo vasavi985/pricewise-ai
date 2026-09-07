@@ -1,18 +1,13 @@
 package com.pricewise.backend.entity;
 
-import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "tracked_products")
 public class TrackedProduct {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "store_product_id", nullable = false)
+    private Long storeProductId;
+
     private StoreProduct storeProduct;
 
     private String userId = "local-user";
@@ -34,12 +29,9 @@ public class TrackedProduct {
     private LocalDateTime lastCheckedAt;
 
     public TrackedProduct() {
-    }
-
-    @PrePersist
-    protected void onCreate() {
         this.createdAt = LocalDateTime.now();
         this.lastCheckedAt = LocalDateTime.now();
+        this.active = true;
     }
 
     // Getters and Setters
@@ -51,12 +43,23 @@ public class TrackedProduct {
         this.id = id;
     }
 
+    public Long getStoreProductId() {
+        return storeProductId != null ? storeProductId : (storeProduct != null ? storeProduct.getId() : null);
+    }
+
+    public void setStoreProductId(Long storeProductId) {
+        this.storeProductId = storeProductId;
+    }
+
     public StoreProduct getStoreProduct() {
         return storeProduct;
     }
 
     public void setStoreProduct(StoreProduct storeProduct) {
         this.storeProduct = storeProduct;
+        if (storeProduct != null) {
+            this.storeProductId = storeProduct.getId();
+        }
     }
 
     public String getUserId() {

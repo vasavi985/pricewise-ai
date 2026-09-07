@@ -2,36 +2,27 @@ package com.pricewise.backend.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
-import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-@Entity
-@Table(name = "store_products")
 public class StoreProduct {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id", nullable = false)
+    private Long productId;
+
     @JsonBackReference
     private Product product;
 
-    @Column(nullable = false)
     private String store; // AMAZON, FLIPKART, CROMA, OPEN_COMMERCE, CATALOG
 
     private String storeProductId;
 
-    @Column(length = 500)
     private String title;
 
-    @Column(length = 1000)
     private String productUrl;
 
-    @Column(length = 1000)
     private String imageUrl;
 
     private Double currentPrice;
@@ -44,15 +35,16 @@ public class StoreProduct {
 
     private LocalDateTime lastCheckedAt;
 
-    @OneToMany(mappedBy = "storeProduct", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JsonManagedReference
     private List<PriceRecord> priceRecords = new ArrayList<>();
 
     public StoreProduct() {
+        this.lastCheckedAt = LocalDateTime.now();
     }
 
     public StoreProduct(Product product, String store, String storeProductId, String title, String productUrl, Double currentPrice, String currency, String availability, String status) {
         this.product = product;
+        this.productId = product != null ? product.getId() : null;
         this.store = store;
         this.storeProductId = storeProductId;
         this.title = title;
@@ -73,12 +65,23 @@ public class StoreProduct {
         this.id = id;
     }
 
+    public Long getProductId() {
+        return productId != null ? productId : (product != null ? product.getId() : null);
+    }
+
+    public void setProductId(Long productId) {
+        this.productId = productId;
+    }
+
     public Product getProduct() {
         return product;
     }
 
     public void setProduct(Product product) {
         this.product = product;
+        if (product != null && this.productId == null) {
+            this.productId = product.getId();
+        }
     }
 
     public String getStore() {
@@ -166,11 +169,14 @@ public class StoreProduct {
     }
 
     public void setPriceRecords(List<PriceRecord> priceRecords) {
-        this.priceRecords = priceRecords;
+        this.priceRecords = priceRecords != null ? priceRecords : new ArrayList<>();
     }
 
     public void addPriceRecord(PriceRecord record) {
-        priceRecords.add(record);
+        if (this.priceRecords == null) {
+            this.priceRecords = new ArrayList<>();
+        }
+        this.priceRecords.add(record);
         record.setStoreProduct(this);
     }
 }

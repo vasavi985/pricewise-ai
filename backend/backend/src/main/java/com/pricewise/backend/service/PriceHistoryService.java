@@ -7,14 +7,12 @@ import com.pricewise.backend.entity.Product;
 import com.pricewise.backend.repository.PriceRecordRepository;
 import com.pricewise.backend.repository.ProductRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Service
-@Transactional(readOnly = true)
 public class PriceHistoryService {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MMM dd");

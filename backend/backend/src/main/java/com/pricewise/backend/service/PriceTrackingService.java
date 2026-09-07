@@ -2,7 +2,6 @@ package com.pricewise.backend.service;
 
 import com.pricewise.backend.dto.TrackedProductDTO;
 import com.pricewise.backend.dto.TrackingRequestDTO;
-import com.pricewise.backend.entity.PriceRecord;
 import com.pricewise.backend.entity.StoreProduct;
 import com.pricewise.backend.entity.TrackedProduct;
 import com.pricewise.backend.notification.NotificationService;
@@ -12,7 +11,6 @@ import com.pricewise.backend.repository.TrackedProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -20,7 +18,6 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-@Transactional
 public class PriceTrackingService {
 
     private static final Logger log = LoggerFactory.getLogger(PriceTrackingService.class);
@@ -40,7 +37,6 @@ public class PriceTrackingService {
         this.notificationService = notificationService;
     }
 
-    @Transactional
     public TrackedProductDTO trackProduct(TrackingRequestDTO req) {
         StoreProduct sp = storeProductRepository.findById(req.getStoreProductId())
                 .orElseThrow(() -> new RuntimeException("Store product not found: " + req.getStoreProductId()));
@@ -58,6 +54,7 @@ public class PriceTrackingService {
         } else {
             tracked = new TrackedProduct();
             tracked.setStoreProduct(sp);
+            tracked.setStoreProductId(sp.getId());
             tracked.setUserId(userId);
             tracked.setUserEmail(req.getUserEmail());
             tracked.setInitialPrice(sp.getCurrentPrice());
@@ -67,7 +64,8 @@ public class PriceTrackingService {
         }
 
         tracked = trackedProductRepository.save(tracked);
-        log.info("User [{}] started tracking [{}] at {} (Target: ₹{})", userId, sp.getProduct().getCanonicalName(), sp.getStore(), tracked.getTargetPrice());
+        String prodName = (sp.getProduct() != null) ? sp.getProduct().getCanonicalName() : sp.getTitle();
+        log.info("User [{}] started tracking [{}] at {} (Target: ₹{})", userId, prodName, sp.getStore(), tracked.getTargetPrice());
 
         return toDto(tracked);
     }
@@ -88,7 +86,6 @@ public class PriceTrackingService {
         return toDto(tp);
     }
 
-    @Transactional
     public void stopTracking(Long id) {
         TrackedProduct tp = trackedProductRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Tracked product not found: " + id));
@@ -97,13 +94,9 @@ public class PriceTrackingService {
         log.info("Stopped tracking item ID: {}", id);
     }
 
-    @Transactional
     public TrackedProductDTO checkPriceNow(Long id) {
         TrackedProduct tp = trackedProductRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Tracked product not found: " + id));
-
-        StoreProduct sp = tp.getStoreProduct();
-        Double currentPrice = sp.getCurrentPrice();
 
         tp.setLastCheckedAt(LocalDateTime.now());
         trackedProductRepository.save(tp);
@@ -111,7 +104,6 @@ public class PriceTrackingService {
         return toDto(tp);
     }
 
-    @Transactional
     public void evaluatePriceChange(TrackedProduct tp, double previousPrice, double newPrice) {
         if (newPrice < previousPrice) {
             double dropAmount = Math.round((previousPrice - newPrice) * 100.0) / 100.0;
@@ -134,13 +126,25 @@ public class PriceTrackingService {
     private TrackedProductDTO toDto(TrackedProduct tp) {
         TrackedProductDTO dto = new TrackedProductDTO();
         dto.setId(tp.getId());
-        dto.setStoreProductId(tp.getStoreProduct().getId());
-        dto.setProductId(tp.getStoreProduct().getProduct().getId());
-        dto.setProductName(tp.getStoreProduct().getProduct().getCanonicalName());
-        dto.setStore(tp.getStoreProduct().getStore());
-        dto.setImageUrl(tp.getStoreProduct().getImageUrl() != null ? tp.getStoreProduct().getImageUrl() : tp.getStoreProduct().getProduct().getImageUrl());
-        dto.setProductUrl(tp.getStoreProduct().getProductUrl());
-        dto.setCurrentPrice(tp.getStoreProduct().getCurrentPrice());
+        dto.setStoreProductId(tp.getStoreProductId());
+
+        StoreProduct sp = tp.getStoreProduct();
+        if (sp != null) {
+            dto.setStore(sp.getStore());
+            dto.setProductUrl(sp.getProductUrl());
+            dto.setCurrentPrice(sp.getCurrentPrice());
+
+            if (sp.getProduct() != null) {
+                dto.setProductId(sp.getProduct().getId());
+                dto.setProductName(sp.getProduct().getCanonicalName());
+                dto.setImageUrl(sp.getImageUrl() != null ? sp.getImageUrl() : sp.getProduct().getImageUrl());
+            } else {
+                dto.setProductId(sp.getProductId());
+                dto.setProductName(sp.getTitle());
+                dto.setImageUrl(sp.getImageUrl());
+            }
+        }
+
         dto.setInitialPrice(tp.getInitialPrice());
         dto.setTargetPrice(tp.getTargetPrice());
         dto.setTargetDropPercentage(tp.getTargetDropPercentage());
@@ -150,8 +154,9 @@ public class PriceTrackingService {
         dto.setActive(tp.getActive());
         dto.setUserEmail(tp.getUserEmail());
 
-        if (tp.getInitialPrice() != null && tp.getStoreProduct().getCurrentPrice() != null) {
-            double diff = tp.getInitialPrice() - tp.getStoreProduct().getCurrentPrice();
+        Double currentPrice = (sp != null) ? sp.getCurrentPrice() : null;
+        if (tp.getInitialPrice() != null && currentPrice != null) {
+            double diff = tp.getInitialPrice() - currentPrice;
             dto.setPriceDrop(Math.round(diff * 100.0) / 100.0);
             if (tp.getInitialPrice() > 0) {
                 dto.setDropPercentage(Math.round((diff / tp.getInitialPrice() * 100.0) * 10.0) / 10.0);

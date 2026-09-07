@@ -13,7 +13,6 @@ import com.pricewise.backend.repository.StoreProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -41,12 +40,11 @@ public class ProductSearchService {
         this.priceComparisonService = priceComparisonService;
     }
 
-    @Transactional
     public ProductSearchResultDTO search(String query) {
         String safeQuery = (query != null) ? query.trim() : "";
         log.info("Executing unified multi-provider search for: '{}'", safeQuery);
 
-        // 1. Synchronize any legacy products in MySQL to ensure StoreProduct and PriceRecords exist
+        // 1. Synchronize any legacy products to ensure StoreProduct and PriceRecords exist
         syncLegacyProducts();
 
         // 2. Fetch from all registered providers
@@ -87,7 +85,6 @@ public class ProductSearchService {
         return new ProductSearchResultDTO(safeQuery, comparisons, providerManager.getProviderStatuses());
     }
 
-    @Transactional
     public void syncLegacyProducts() {
         List<Product> all = productRepository.findAll();
         for (Product p : all) {
@@ -184,6 +181,7 @@ public class ProductSearchService {
         StoreProduct sp;
         if (existing.isPresent()) {
             sp = existing.get();
+            sp.setProduct(product);
             sp.setCurrentPrice(item.getPrice());
             sp.setAvailability(item.getAvailability());
             sp.setStatus(item.getStatus());
@@ -216,7 +214,8 @@ public class ProductSearchService {
         if (latest.isEmpty() || Math.abs(latest.get().getPrice() - newPrice) > 0.01) {
             PriceRecord record = new PriceRecord(storeProduct, newPrice, storeProduct.getCurrency(), storeProduct.getAvailability(), status);
             priceRecordRepository.save(record);
-            log.info("Recorded price change for [{}] store [{}] -> ₹{}", storeProduct.getProduct().getCanonicalName(), storeProduct.getStore(), newPrice);
+            String prodName = storeProduct.getProduct() != null ? storeProduct.getProduct().getCanonicalName() : storeProduct.getTitle();
+            log.info("Recorded price change for [{}] store [{}] -> ₹{}", prodName, storeProduct.getStore(), newPrice);
         }
     }
 

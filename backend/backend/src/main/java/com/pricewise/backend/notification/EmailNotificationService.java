@@ -31,8 +31,19 @@ public class EmailNotificationService implements NotificationService {
     @Override
     public void sendPriceDropAlert(TrackedProduct tracked, double previousPrice, double newPrice, double dropAmount, double dropPercentage) {
         String recipient = tracked.getUserEmail();
-        String productName = tracked.getStoreProduct().getProduct().getCanonicalName();
-        String store = tracked.getStoreProduct().getStore();
+        String productName = "Tracked Item";
+        String store = "Store";
+        String productUrl = "";
+
+        if (tracked.getStoreProduct() != null) {
+            store = tracked.getStoreProduct().getStore();
+            productUrl = tracked.getStoreProduct().getProductUrl();
+            if (tracked.getStoreProduct().getProduct() != null) {
+                productName = tracked.getStoreProduct().getProduct().getCanonicalName();
+            } else if (tracked.getStoreProduct().getTitle() != null) {
+                productName = tracked.getStoreProduct().getTitle();
+            }
+        }
 
         String message = String.format(
                 "Great news! The price of '%s' at %s dropped by ₹%,.0f (%.1f%%) from ₹%,.0f to ₹%,.0f.",
@@ -49,7 +60,7 @@ public class EmailNotificationService implements NotificationService {
                 mailMessage.setFrom(mailSenderUser);
                 mailMessage.setTo(recipient);
                 mailMessage.setSubject("🔥 Price Drop Alert: " + productName + " is now ₹" + String.format("%,.0f", newPrice));
-                mailMessage.setText(message + "\n\nView deal: " + tracked.getStoreProduct().getProductUrl());
+                mailMessage.setText(message + (productUrl != null ? "\n\nView deal: " + productUrl : ""));
 
                 mailSender.send(mailMessage);
                 status = "SENT";

@@ -1,18 +1,13 @@
 package com.pricewise.backend.entity;
 
-import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "notification_records")
 public class NotificationRecord {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "tracked_product_id")
+    private Long trackedProductId;
+
     private TrackedProduct trackedProduct;
 
     private String recipientEmail;
@@ -25,18 +20,19 @@ public class NotificationRecord {
 
     private Double dropPercentage;
 
-    private String status = "PENDING"; // PENDING, SENT, FAILED, LOGGED
+    private String status = "PENDING"; // PENDING, SENT, FAILED, LOGGED, EMAIL NOT CONFIGURED
 
-    @Column(length = 1000)
     private String message;
 
     private LocalDateTime sentAt;
 
     public NotificationRecord() {
+        this.sentAt = LocalDateTime.now();
     }
 
     public NotificationRecord(TrackedProduct trackedProduct, String recipientEmail, Double previousPrice, Double newPrice, Double dropAmount, Double dropPercentage, String status, String message) {
         this.trackedProduct = trackedProduct;
+        this.trackedProductId = trackedProduct != null ? trackedProduct.getId() : null;
         this.recipientEmail = recipientEmail;
         this.previousPrice = previousPrice;
         this.newPrice = newPrice;
@@ -56,12 +52,23 @@ public class NotificationRecord {
         this.id = id;
     }
 
+    public Long getTrackedProductId() {
+        return trackedProductId != null ? trackedProductId : (trackedProduct != null ? trackedProduct.getId() : null);
+    }
+
+    public void setTrackedProductId(Long trackedProductId) {
+        this.trackedProductId = trackedProductId;
+    }
+
     public TrackedProduct getTrackedProduct() {
         return trackedProduct;
     }
 
     public void setTrackedProduct(TrackedProduct trackedProduct) {
         this.trackedProduct = trackedProduct;
+        if (trackedProduct != null) {
+            this.trackedProductId = trackedProduct.getId();
+        }
     }
 
     public String getRecipientEmail() {

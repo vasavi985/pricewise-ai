@@ -1,0 +1,249 @@
+package com.pricewise.backend.repository.firestore;
+
+import com.google.api.core.ApiFuture;
+import com.google.cloud.firestore.*;
+import com.pricewise.backend.entity.Product;
+import com.pricewise.backend.repository.ProductRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Repository
+public class FirestoreProductRepository implements ProductRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(FirestoreProductRepository.class);
+    private static final String COLLECTION_NAME = "products";
+
+    private final Firestore firestore;
+    private final FirestoreSequenceService sequenceService;
+    private final Map<Long, Product> inMemoryProducts = new ConcurrentHashMap<>();
+
+    public FirestoreProductRepository(@Autowired(required = false) Firestore firestore,
+                                    FirestoreSequenceService sequenceService) {
+        this.firestore = firestore;
+        this.sequenceService = sequenceService;
+    }
+
+    @Override
+    public List<Product> findAll() {
+        if (firestore == null) {
+            List<Product> list = new ArrayList<>(inMemoryProducts.values());
+            list.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
+            return list;
+        }
+
+        try {
+            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
+            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+            List<Product> products = new ArrayList<>();
+            for (DocumentSnapshot doc : docs) {
+                Product p = fromSnapshot(doc);
+                if (p != null && p.getId() != null) {
+                    products.add(p);
+                    inMemoryProducts.put(p.getId(), p);
+                }
+            }
+            products.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
+            return products;
+        } catch (Exception e) {
+            log.error("Failed to fetch all products from Firestore: {}", e.getMessage());
+            List<Product> list = new ArrayList<>(inMemoryProducts.values());
+            list.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
+            return list;
+        }
+    }
+
+    @Override
+    public Optional<Product> findById(Long id) {
+        if (id == null) return Optional.empty();
+
+        if (firestore == null) {
+            return Optional.ofNullable(inMemoryProducts.get(id));
+        }
+
+        try {
+            DocumentSnapshot doc = firestore.collection(COLLECTION_NAME)
+                    .document(String.valueOf(id))
+                    .get()
+                    .get();
+
+            if (doc.exists()) {
+                Product p = fromSnapshot(doc);
+                if (p != null) {
+                    inMemoryProducts.put(p.getId(), p);
+                    return Optional.of(p);
+                }
+            }
+            return Optional.ofNullable(inMemoryProducts.get(id));
+        } catch (Exception e) {
+            log.error("Failed to find product by id [{}] in Firestore: {}", id, e.getMessage());
+            return Optional.ofNullable(inMemoryProducts.get(id));
+        }
+    }
+
+    @Override
+    public Product save(Product product) {
+        if (product == null) return null;
+
+        if (product.getId() == null) {
+            long newId = sequenceService.getNextSequence(COLLECTION_NAME);
+            product.setId(newId);
+        } else {
+            sequenceService.ensureAtLeast(COLLECTION_NAME, product.getId());
+        }
+
+        if (product.getCreatedAt() == null) {
+            product.setCreatedAt(LocalDateTime.now());
+        }
+        product.setUpdatedAt(LocalDateTime.now());
+        if (product.getCanonicalName() == null && product.getProductName() != null) {
+            product.setCanonicalName(product.getProductName());
+        }
+
+        inMemoryProducts.put(product.getId(), product);
+
+        if (firestore != null) {
+            try {
+                firestore.collection(COLLECTION_NAME)
+                        .document(String.valueOf(product.getId()))
+                        .set(toMap(product), SetOptions.merge())
+                        .get();
+            } catch (Exception e) {
+                log.error("Failed to persist product [{}] to Firestore: {}", product.getId(), e.getMessage());
+            }
+        }
+
+        return product;
+    }
+
+    @Override
+    public List<Product> searchProducts(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return findAll();
+        }
+
+        String lower = query.trim().toLowerCase();
+        List<Product> all = findAll();
+        List<Product> matches = new ArrayList<>();
+
+        for (Product p : all) {
+            boolean matchName = p.getProductName() != null && p.getProductName().toLowerCase().contains(lower);
+            boolean matchCanonical = p.getCanonicalName() != null && p.getCanonicalName().toLowerCase().contains(lower);
+            boolean matchBrand = p.getBrand() != null && p.getBrand().toLowerCase().contains(lower);
+
+            if (matchName || matchCanonical || matchBrand) {
+                matches.add(p);
+            }
+        }
+
+        return matches;
+    }
+
+    @Override
+    public Optional<Product> findByCanonicalNameIgnoreCase(String canonicalName) {
+        if (canonicalName == null || canonicalName.trim().isEmpty()) return Optional.empty();
+        String target = canonicalName.trim().toLowerCase();
+
+        for (Product p : findAll()) {
+            if (p.getCanonicalName() != null && p.getCanonicalName().trim().equalsIgnoreCase(target)) {
+                return Optional.of(p);
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<Product> findByProductNameIgnoreCase(String productName) {
+        if (productName == null || productName.trim().isEmpty()) return Optional.empty();
+        String target = productName.trim().toLowerCase();
+
+        for (Product p : findAll()) {
+            if (p.getProductName() != null && p.getProductName().trim().equalsIgnoreCase(target)) {
+                return Optional.of(p);
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public long count() {
+        if (firestore == null) {
+            return inMemoryProducts.size();
+        }
+        try {
+            return firestore.collection(COLLECTION_NAME).get().get().size();
+        } catch (Exception e) {
+            return inMemoryProducts.size();
+        }
+    }
+
+    @Override
+    public void deleteById(Long id) {
+        if (id == null) return;
+        inMemoryProducts.remove(id);
+        if (firestore != null) {
+            try {
+                firestore.collection(COLLECTION_NAME).document(String.valueOf(id)).delete().get();
+            } catch (Exception e) {
+                log.error("Failed to delete product [{}] from Firestore: {}", id, e.getMessage());
+            }
+        }
+    }
+
+    private Map<String, Object> toMap(Product product) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", product.getId());
+        map.put("productName", product.getProductName());
+        map.put("canonicalName", product.getCanonicalName());
+        map.put("brand", product.getBrand());
+        map.put("model", product.getModel());
+        map.put("category", product.getCategory());
+        map.put("description", product.getDescription());
+        map.put("imageUrl", product.getImageUrl());
+        map.put("rating", product.getRating());
+        map.put("amazonPrice", product.getAmazonPrice());
+        map.put("flipkartPrice", product.getFlipkartPrice());
+        map.put("cromaPrice", product.getCromaPrice());
+        map.put("createdAt", product.getCreatedAt() != null ? product.getCreatedAt().toString() : LocalDateTime.now().toString());
+        map.put("updatedAt", product.getUpdatedAt() != null ? product.getUpdatedAt().toString() : LocalDateTime.now().toString());
+        return map;
+    }
+
+    private Product fromSnapshot(DocumentSnapshot doc) {
+        if (doc == null || !doc.exists()) return null;
+        Product p = new Product();
+        Long id = doc.getLong("id");
+        if (id == null) {
+            try {
+                id = Long.parseLong(doc.getId());
+            } catch (Exception ignored) {}
+        }
+        p.setId(id);
+        p.setProductName(doc.getString("productName"));
+        p.setCanonicalName(doc.getString("canonicalName"));
+        p.setBrand(doc.getString("brand"));
+        p.setModel(doc.getString("model"));
+        p.setCategory(doc.getString("category"));
+        p.setDescription(doc.getString("description"));
+        p.setImageUrl(doc.getString("imageUrl"));
+        p.setRating(doc.getDouble("rating"));
+        p.setAmazonPrice(doc.getDouble("amazonPrice"));
+        p.setFlipkartPrice(doc.getDouble("flipkartPrice"));
+        p.setCromaPrice(doc.getDouble("cromaPrice"));
+
+        String createdStr = doc.getString("createdAt");
+        if (createdStr != null) {
+            try { p.setCreatedAt(LocalDateTime.parse(createdStr)); } catch (Exception ignored) {}
+        }
+        String updatedStr = doc.getString("updatedAt");
+        if (updatedStr != null) {
+            try { p.setUpdatedAt(LocalDateTime.parse(updatedStr)); } catch (Exception ignored) {}
+        }
+        return p;
+    }
+}

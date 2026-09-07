@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -47,7 +46,6 @@ public class PriceTrackingScheduler {
     }
 
     @Scheduled(fixedDelayString = "${pricewise.tracking.interval:60000}", initialDelay = 15000)
-    @Transactional
     public void runPriceCheckJob() {
         if (!trackingEnabled) {
             log.debug("Price tracking scheduler is disabled by configuration.");
@@ -75,8 +73,17 @@ public class PriceTrackingScheduler {
 
     private void checkPriceForTrackedItem(TrackedProduct tp) {
         StoreProduct sp = tp.getStoreProduct();
+        if (sp == null && tp.getStoreProductId() != null) {
+            sp = storeProductRepository.findById(tp.getStoreProductId()).orElse(null);
+        }
+        if (sp == null) {
+            log.warn("Cannot check price for tracked item ID {}: StoreProduct not found.", tp.getId());
+            return;
+        }
+
         String store = sp.getStore();
         Double oldPrice = sp.getCurrentPrice();
+        String prodName = (sp.getProduct() != null) ? sp.getProduct().getCanonicalName() : sp.getTitle();
 
         PriceProvider provider = providerManager.getProvider(store);
         if (provider != null && provider.isConfigured()) {
@@ -89,7 +96,7 @@ public class PriceTrackingScheduler {
 
                 if (oldPrice != null && Math.abs(oldPrice - newPrice) > 0.01) {
                     log.info("Price change detected by scheduler for [{}] ({}) -> was ₹{}, now ₹{}",
-                            sp.getProduct().getCanonicalName(), store, oldPrice, newPrice);
+                            prodName, store, oldPrice, newPrice);
                     sp.setCurrentPrice(newPrice);
                     storeProductRepository.save(sp);
 
@@ -104,7 +111,7 @@ public class PriceTrackingScheduler {
                 }
             } else {
                 log.warn("Scheduled price fetch failed or returned no valid price for [{}] at {}. Status updated to FETCH_FAILED without creating misleading price record.",
-                        sp.getProduct().getCanonicalName(), store);
+                        prodName, store);
                 sp.setStatus("FETCH_FAILED");
                 sp.setLastCheckedAt(LocalDateTime.now());
                 storeProductRepository.save(sp);

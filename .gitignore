@@ -4,6 +4,19 @@
 .env.*.local
 *.env
 
+# Firebase & Cloud Credentials (secrets only)
+*firebase*adminsdk*.json
+*firebase*key*.json
+*firebase*credentials*.json
+*firebase*secret*.json
+*serviceAccount*.json
+*service-account*.json
+*credentials*.json
+serviceAccountKey.json
+gcp-key.json
+*.pem
+*.key
+
 # Build outputs
 target/
 dist/

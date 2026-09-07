@@ -1,30 +1,18 @@
 package com.pricewise.backend.entity;
 
 import com.fasterxml.jackson.annotation.JsonManagedReference;
-import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-@Entity
-@Table(name = "products")
 public class Product {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Existing legacy fields for full backwards compatibility
-    @Column(name = "product_name")
+    // Legacy fields for backward compatibility
     private String productName;
-    
-    @Column(name = "amazon_price")
     private Double amazonPrice;
-    
-    @Column(name = "flipkart_price")
     private Double flipkartPrice;
-    
-    @Column(name = "croma_price")
     private Double cromaPrice;
 
     // Normalized intelligence fields
@@ -32,34 +20,34 @@ public class Product {
     private String brand;
     private String model;
     private String category;
-    
-    @Column(columnDefinition = "TEXT")
     private String description;
-    
     private String imageUrl;
     private Double rating;
-    
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JsonManagedReference
     private List<StoreProduct> storeProducts = new ArrayList<>();
 
     public Product() {
-    }
-
-    @PrePersist
-    protected void onCreate() {
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
-        if (this.canonicalName == null && this.productName != null) {
-            this.canonicalName = this.productName;
-        }
     }
 
-    @PreUpdate
-    protected void onUpdate() {
+    public Product(Long id, String canonicalName, String brand, String model, String category,
+                   String description, String imageUrl, Double rating, Double benchmarkPrice) {
+        this.id = id;
+        this.canonicalName = canonicalName;
+        this.productName = canonicalName;
+        this.brand = brand;
+        this.model = model;
+        this.category = category;
+        this.description = description;
+        this.imageUrl = imageUrl;
+        this.rating = rating;
+        this.flipkartPrice = benchmarkPrice;
+        this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
 
@@ -187,11 +175,14 @@ public class Product {
     }
 
     public void setStoreProducts(List<StoreProduct> storeProducts) {
-        this.storeProducts = storeProducts;
+        this.storeProducts = storeProducts != null ? storeProducts : new ArrayList<>();
     }
 
     public void addStoreProduct(StoreProduct storeProduct) {
-        storeProducts.add(storeProduct);
+        if (this.storeProducts == null) {
+            this.storeProducts = new ArrayList<>();
+        }
+        this.storeProducts.add(storeProduct);
         storeProduct.setProduct(this);
     }
 }

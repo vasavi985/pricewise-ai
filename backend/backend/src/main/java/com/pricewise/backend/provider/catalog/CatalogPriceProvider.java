@@ -40,7 +40,7 @@ public class CatalogPriceProvider implements PriceProvider {
 
     @Override
     public String getDescription() {
-        return "Pricewise Verified Product Catalog (MySQL Database)";
+        return "Pricewise Verified Product Catalog (Cloud Firestore)";
     }
 
     @Override
