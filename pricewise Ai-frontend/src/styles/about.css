@@ -1,0 +1,180 @@
+.about-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.about-container {
+  flex: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 50px 20px 70px;
+  width: 100%;
+}
+
+.about-hero {
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto 50px;
+}
+
+.about-badge {
+  background: #EEF2FF;
+  color: #6C4CF1;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 18px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
+.about-title {
+  font-size: 38px;
+  font-weight: 800;
+  color: #111827;
+  margin-bottom: 16px;
+}
+
+.about-lead {
+  font-size: 17px;
+  color: #4B5563;
+  line-height: 1.8;
+}
+
+.about-principles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+  margin-bottom: 60px;
+}
+
+.principle-card {
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 18px;
+  padding: 28px 22px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+
+.p-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #EEF2FF;
+  color: #6C4CF1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 16px;
+}
+
+.principle-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 10px;
+}
+
+.principle-card p {
+  font-size: 14px;
+  color: #6B7280;
+  line-height: 1.6;
+}
+
+/* Provider Table */
+.about-providers-section {
+  background: white;
+  border-radius: 20px;
+  border: 1px solid #E5E7EB;
+  padding: 35px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.sec-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.sec-ico {
+  font-size: 24px;
+  color: #6C4CF1;
+}
+
+.sec-header h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.provider-table-wrapper {
+  overflow-x: auto;
+}
+
+.provider-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.provider-table th {
+  background: #F8FAFC;
+  padding: 14px 16px;
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #6B7280;
+  border-bottom: 2px solid #E2E8F0;
+}
+
+.provider-table td {
+  padding: 16px;
+  border-bottom: 1px solid #F1F5F9;
+  font-size: 14px;
+  color: #374151;
+}
+
+.store-cell {
+  color: #111827;
+}
+
+.config-cell code {
+  background: #F1F5F9;
+  color: #6C4CF1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.table-status-pill {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pill-live {
+  background: #DCFCE7;
+  color: #15803D;
+}
+
+.pill-sample_data {
+  background: #FEF3C7;
+  color: #B45309;
+}
+
+.pill-config_required {
+  background: #F3F4F6;
+  color: #4B5563;
+}
+
+.pill-unavailable {
+  background: #F3F4F6;
+  color: #9CA3AF;
+}

@@ -1,0 +1,264 @@
+.store-card {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #E5E7EB;
+  padding: 20px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.04);
+  transition: all 0.25s ease;
+}
+
+.store-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+}
+
+.store-card-lowest {
+  border-color: #10B981;
+  background: #FAFEFD;
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.12);
+}
+
+.lowest-ribbon {
+  position: absolute;
+  top: -12px;
+  left: 20px;
+  background: #10B981;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.catalog-ribbon {
+  position: absolute;
+  top: -12px;
+  left: 20px;
+  background: #D97706;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+}
+
+.store-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.store-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.store-logo-badge {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: white;
+  font-size: 18px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.store-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.store-meta-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.status-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-block;
+  letter-spacing: 0.3px;
+  width: fit-content;
+}
+
+.source-label {
+  font-size: 10px;
+  color: #64748B;
+  font-weight: 500;
+}
+
+.status-live {
+  background: #DCFCE7;
+  color: #15803D;
+}
+
+.status-sample_data,
+.status-sample-data {
+  background: #FEF3C7;
+  color: #B45309;
+}
+
+.status-last-known,
+.status-last_known {
+  background: #E0E7FF;
+  color: #3730A3;
+}
+
+.status-config_required,
+.status-config-required {
+  background: #F1F5F9;
+  color: #475569;
+  border: 1px dashed #CBD5E1;
+}
+
+.status-unavailable {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.status-fetch-failed,
+.status-fetch_failed {
+  background: #FEE2E2;
+  color: #B91C1C;
+}
+
+.avail-badge {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.avail-in {
+  background: #ECFDF5;
+  color: #059669;
+}
+
+.avail-out {
+  background: #FEF2F2;
+  color: #DC2626;
+}
+
+.store-price-box {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px;
+  background: #F8FAFC;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+.price-stack {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.current-currency {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.current-amount {
+  font-size: 26px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.store-card-lowest .current-amount,
+.store-card-lowest .current-currency {
+  color: #059669;
+}
+
+.price-unavailable {
+  font-size: 16px;
+  font-weight: 600;
+  color: #9CA3AF;
+}
+
+.last-checked {
+  font-size: 12px;
+  color: #6B7280;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.store-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.buy-btn {
+  flex: 1;
+  background: #111827;
+  color: white;
+  padding: 11px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.buy-btn:hover:not(.disabled) {
+  background: #000000;
+}
+
+.buy-btn.disabled {
+  background: #E5E7EB;
+  color: #9CA3AF;
+  cursor: not-allowed;
+}
+
+.ext-icon {
+  font-size: 11px;
+}
+
+.track-btn {
+  background: #EEF2FF;
+  color: #6C4CF1;
+  border: 1px solid #C7D2FE;
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.track-btn:hover {
+  background: #E0E7FF;
+}
+
+.store-card-disabled {
+  opacity: 0.7;
+}

@@ -1,0 +1,221 @@
+.product-card {
+  background: white;
+  border-radius: 18px;
+  border: 1px solid #E5E7EB;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.product-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 30px rgba(108, 76, 241, 0.12);
+  border-color: #C7D2FE;
+}
+
+.product-card-media {
+  position: relative;
+  height: 220px;
+  background: #F8FAFC;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.product-card-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.4s ease;
+}
+
+.product-card:hover .product-card-img {
+  transform: scale(1.05);
+}
+
+.card-badge-best {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #10B981;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 20px;
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+}
+
+.card-badge-best.badge-catalog {
+  background: #D97706;
+  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3);
+}
+
+.product-card-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #6B7280;
+  margin-bottom: 8px;
+}
+
+.card-brand {
+  font-weight: 600;
+  color: #6C4CF1;
+}
+
+.card-rating {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #F59E0B;
+  font-weight: 600;
+}
+
+.star-icon {
+  font-size: 12px;
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+.card-title a {
+  transition: color 0.2s;
+}
+
+.card-title a:hover {
+  color: #6C4CF1;
+}
+
+.card-pricing {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #F8FAFC;
+  border-radius: 12px;
+  margin-bottom: 14px;
+}
+
+.price-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.price-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6B7280;
+  font-weight: 600;
+}
+
+.price-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #10B981;
+}
+
+.savings-pill {
+  background: #DCFCE7;
+  color: #15803D;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+.card-stores {
+  margin-bottom: 16px;
+}
+
+.stores-count-label {
+  font-size: 12px;
+  color: #6B7280;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.store-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.store-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.store-chip.chip-lowest {
+  background: #ECFDF5;
+  border-color: #A7F3D0;
+}
+
+.chip-name {
+  font-weight: 600;
+  color: #374151;
+}
+
+.chip-price {
+  font-weight: 700;
+  color: #111827;
+}
+
+.chip-lowest .chip-price {
+  color: #10B981;
+}
+
+.more-stores-tag {
+  font-size: 11px;
+  color: #6B7280;
+  align-self: center;
+}
+
+.card-actions {
+  margin-top: auto;
+}
+
+.view-details-btn {
+  display: block;
+  text-align: center;
+  background: #6C4CF1;
+  color: white;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.view-details-btn:hover {
+  background: #5A3CE0;
+  box-shadow: 0 4px 15px rgba(108, 76, 241, 0.25);
+}
