@@ -2,11 +2,15 @@ package com.pricewise.backend.controller;
 
 import com.pricewise.backend.dto.*;
 import com.pricewise.backend.entity.Product;
+import com.pricewise.backend.entity.UserSearchHistory;
 import com.pricewise.backend.provider.ProviderManager;
 import com.pricewise.backend.repository.ProductRepository;
+import com.pricewise.backend.repository.UserSearchHistoryRepository;
+import com.pricewise.backend.service.FirebaseAuthService;
 import com.pricewise.backend.service.PriceComparisonService;
 import com.pricewise.backend.service.PriceHistoryService;
 import com.pricewise.backend.service.ProductSearchService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,17 +25,23 @@ public class ProductController {
     private final PriceComparisonService priceComparisonService;
     private final PriceHistoryService priceHistoryService;
     private final ProviderManager providerManager;
+    private final UserSearchHistoryRepository historyRepository;
+    private final FirebaseAuthService firebaseAuthService;
 
     public ProductController(ProductRepository productRepository,
                              ProductSearchService productSearchService,
                              PriceComparisonService priceComparisonService,
                              PriceHistoryService priceHistoryService,
-                             ProviderManager providerManager) {
+                             ProviderManager providerManager,
+                             @Autowired(required = false) UserSearchHistoryRepository historyRepository,
+                             @Autowired(required = false) FirebaseAuthService firebaseAuthService) {
         this.productRepository = productRepository;
         this.productSearchService = productSearchService;
         this.priceComparisonService = priceComparisonService;
         this.priceHistoryService = priceHistoryService;
         this.providerManager = providerManager;
+        this.historyRepository = historyRepository;
+        this.firebaseAuthService = firebaseAuthService;
     }
 
     // Legacy endpoint for backward compatibility
@@ -43,8 +53,50 @@ public class ProductController {
 
     // Unified multi-store search endpoint
     @GetMapping("/search")
-    public ResponseEntity<ProductSearchResultDTO> searchProducts(@RequestParam(value = "query", required = false, defaultValue = "") String query) {
+    public ResponseEntity<ProductSearchResultDTO> searchProducts(
+            @RequestParam(value = "query", required = false, defaultValue = "") String query,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
         ProductSearchResultDTO result = productSearchService.search(query);
+
+        // Record search history if user is authenticated and searched a specific query
+        if (query != null && !query.trim().isEmpty() && authHeader != null && historyRepository != null && firebaseAuthService != null) {
+            try {
+                String uid = firebaseAuthService.extractUidOrNull(authHeader);
+                if (uid != null) {
+                    // Ensure exactly one history record per search: prevent duplicate from rapid re-renders or StrictMode
+                    List<UserSearchHistory> recent = historyRepository.findByUserId(uid);
+                    boolean isDuplicate = false;
+                    if (recent != null && !recent.isEmpty()) {
+                        UserSearchHistory latest = recent.get(0);
+                        if (query.trim().equalsIgnoreCase(latest.getQuery()) &&
+                                latest.getCreatedAt() != null &&
+                                java.time.Duration.between(latest.getCreatedAt(), java.time.LocalDateTime.now()).getSeconds() < 5) {
+                            isDuplicate = true;
+                        }
+                    }
+
+                    if (!isDuplicate) {
+                        UserSearchHistory history = new UserSearchHistory();
+                        history.setUserId(uid);
+                        history.setQuery(query.trim());
+                        history.setResultCount(result.getTotalFound());
+
+                        if (result.getResults() != null && !result.getResults().isEmpty()) {
+                            PriceComparisonDTO top = result.getResults().get(0);
+                            history.setTopProductName(top.getProductName());
+                            history.setTopProductPrice(top.getLowestPrice());
+                            history.setTopProductStore(top.getBestStore());
+                            history.setTopProductImage(top.getImageUrl());
+                            history.setTopProductId(top.getProductId());
+                        }
+                        historyRepository.save(history);
+                    }
+                }
+            } catch (Exception e) {
+                // Non-blocking log
+            }
+        }
+
         return ResponseEntity.ok(result);
     }
 

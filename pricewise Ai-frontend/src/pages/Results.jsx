@@ -10,7 +10,7 @@ import "../styles/results.css";
 
 function Results() {
   const [searchParams] = useSearchParams();
-  const query = searchParams.get("q") || "";
+  const query = searchParams.get("q") || searchParams.get("query") || "";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

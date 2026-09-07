@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FaBell, FaSearch, FaHistory, FaInfoCircle, FaHome, FaChartLine } from "react-icons/fa";
+import { FaBell, FaSearch, FaHistory, FaInfoCircle, FaHome, FaChartLine, FaUser, FaSignOutAlt, FaSignInAlt } from "react-icons/fa";
+import { useAuth } from "../context/AuthContext";
 import trackingService from "../services/trackingService";
+import logoImg from "../assets/logos/pricewise-ai-logo-option-6.png";
 import "../styles/navbar.css";
 
 function Navbar() {
   const location = useLocation();
   const [trackedCount, setTrackedCount] = useState(0);
+  const { currentUser, logout } = useAuth();
 
   useEffect(() => {
     trackingService.getTrackedProducts()
@@ -20,9 +23,12 @@ function Navbar() {
 
   return (
     <nav className="navbar">
-      <Link to="/" className="logo">
-        <span className="logo-sparkle">✨</span>
-        <h2>PriceWise <span>AI</span></h2>
+      <Link to="/" className="logo" aria-label="PriceWise AI Home">
+        <img
+          src={logoImg}
+          alt="PriceWise AI"
+          className="navbar-logo-img"
+        />
       </Link>
 
       <ul className="nav-links">
@@ -58,6 +64,20 @@ function Navbar() {
         <Link to="/results" className="start-btn">
           <span>Search Prices</span>
         </Link>
+        {currentUser ? (
+          <div className="nav-user-area">
+            <span className="nav-user-greeting">
+              <FaUser className="nav-user-ico" /> Hi, {currentUser.displayName || currentUser.email?.split("@")[0]}
+            </span>
+            <button onClick={logout} className="nav-logout-btn" title="Log Out">
+              <FaSignOutAlt /> Logout
+            </button>
+          </div>
+        ) : (
+          <Link to="/login" className="nav-login-btn">
+            <FaSignInAlt /> Login
+          </Link>
+        )}
       </div>
     </nav>
   );

@@ -19,6 +19,19 @@
   text-decoration: none;
 }
 
+.navbar-logo-img {
+  height: 56px;
+  width: auto;
+  max-width: 220px;
+  object-fit: contain;
+  display: block;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.logo:hover .navbar-logo-img {
+  transform: scale(1.03);
+}
+
 .logo-sparkle {
   font-size: 22px;
 }
@@ -109,11 +122,80 @@
   box-shadow: 0 6px 20px rgba(108, 76, 241, 0.35);
 }
 
+.nav-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #6C4CF1;
+  border: 1.5px solid #6C4CF1;
+  padding: 8px 18px;
+  border-radius: 25px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.nav-login-btn:hover {
+  background: #EEF2FF;
+  color: #5A3CE0;
+  border-color: #5A3CE0;
+}
+
+.nav-user-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-user-greeting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  background: #F3F4F6;
+  padding: 6px 12px;
+  border-radius: 20px;
+}
+
+.nav-user-ico {
+  color: #6C4CF1;
+  font-size: 12px;
+}
+
+.nav-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid #E5E7EB;
+  color: #6B7280;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-logout-btn:hover {
+  background: #FEF2F2;
+  color: #DC2626;
+  border-color: #FCA5A5;
+}
+
 @media (max-width: 860px) {
   .navbar {
     padding: 12px 16px;
     flex-wrap: wrap;
     gap: 10px;
+  }
+  .navbar-logo-img {
+    height: 46px;
+    max-width: 180px;
   }
   .nav-links {
     gap: 6px;
@@ -139,9 +221,25 @@
     padding: 8px 16px;
     font-size: 13px;
   }
+  .nav-login-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .nav-user-greeting {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  .nav-logout-btn {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
 }
 
 @media (max-width: 480px) {
+  .navbar-logo-img {
+    height: 40px;
+    max-width: 160px;
+  }
   .logo h2 {
     font-size: 20px;
   }

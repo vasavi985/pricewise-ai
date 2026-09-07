@@ -1,14 +1,38 @@
 import axios from "axios";
+import { auth } from "./firebase";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api";
+// Automatically ensure /api path suffix is present and normalized
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api";
+const normalizedBaseUrl = rawBaseUrl.endsWith("/api")
+  ? rawBaseUrl
+  : `${rawBaseUrl.replace(/\/+$/, "")}/api`;
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 12000,
+  baseURL: normalizedBaseUrl,
+  timeout: 25000,
   headers: {
     "Content-Type": "application/json",
   },
 });
+
+// Automatically inject Firebase ID token if a user is authenticated
+api.interceptors.request.use(
+  async (config) => {
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        const token = await user.getIdToken();
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      }
+    } catch (e) {
+      // Non-blocking: continue request even if token extraction fails
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 api.interceptors.response.use(
   (response) => response.data,
