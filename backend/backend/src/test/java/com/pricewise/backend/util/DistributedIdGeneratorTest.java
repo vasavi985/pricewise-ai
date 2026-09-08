@@ -91,28 +91,20 @@ class DistributedIdGeneratorTest {
 
     @Test
     void testClockRollbackProtection_SmallDriftRecovers() {
-        AtomicLong simulatedTime = new AtomicLong(System.currentTimeMillis());
+        java.util.concurrent.atomic.AtomicInteger callCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        long baseTime = System.currentTimeMillis();
 
         DistributedIdGenerator generator = new DistributedIdGenerator(4L) {
             @Override
             protected long timeGen() {
-                return simulatedTime.get();
+                int c = callCount.incrementAndGet();
+                if (c == 1) return baseTime;
+                if (c == 2) return baseTime - 2; // Simulated 2ms backwards drift
+                return baseTime + 5; // Clock advances after sleep
             }
         };
 
         long id1 = generator.nextId();
-
-        // Simulate 2ms backwards drift
-        simulatedTime.addAndGet(-2);
-
-        // Within 10ms, it should recover when clock advances
-        new Thread(() -> {
-            try {
-                Thread.sleep(1);
-                simulatedTime.addAndGet(5);
-            } catch (InterruptedException ignored) {}
-        }).start();
-
         long id2 = generator.nextId();
         assertTrue(id2 > id1, "Recovered ID must be strictly greater than previous ID");
     }
