@@ -4,6 +4,7 @@ import com.google.api.core.ApiFuture;
 import com.google.cloud.firestore.*;
 import com.pricewise.backend.entity.Product;
 import com.pricewise.backend.repository.ProductRepository;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,13 +21,18 @@ public class FirestoreProductRepository implements ProductRepository {
     private static final String COLLECTION_NAME = "products";
 
     private final Firestore firestore;
-    private final FirestoreSequenceService sequenceService;
+    private final DistributedIdGenerator idGenerator;
     private final Map<Long, Product> inMemoryProducts = new ConcurrentHashMap<>();
 
+    @Autowired
     public FirestoreProductRepository(@Autowired(required = false) Firestore firestore,
-                                    FirestoreSequenceService sequenceService) {
+                                    DistributedIdGenerator idGenerator) {
         this.firestore = firestore;
-        this.sequenceService = sequenceService;
+        this.idGenerator = idGenerator != null ? idGenerator : new DistributedIdGenerator();
+    }
+
+    public FirestoreProductRepository(Firestore firestore, FirestoreSequenceService sequenceService) {
+        this(firestore, new DistributedIdGenerator());
     }
 
     @Override
@@ -91,10 +97,8 @@ public class FirestoreProductRepository implements ProductRepository {
         if (product == null) return null;
 
         if (product.getId() == null) {
-            long newId = sequenceService.getNextSequence(COLLECTION_NAME);
+            long newId = idGenerator.nextId();
             product.setId(newId);
-        } else {
-            sequenceService.ensureAtLeast(COLLECTION_NAME, product.getId());
         }
 
         if (product.getCreatedAt() == null) {

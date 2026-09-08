@@ -8,6 +8,7 @@ import com.pricewise.backend.entity.TrackedProduct;
 import com.pricewise.backend.repository.ProductRepository;
 import com.pricewise.backend.repository.StoreProductRepository;
 import com.pricewise.backend.repository.TrackedProductRepository;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,19 +26,27 @@ public class FirestoreTrackedProductRepository implements TrackedProductReposito
     private static final String COLLECTION_NAME = "trackedProducts";
 
     private final Firestore firestore;
-    private final FirestoreSequenceService sequenceService;
+    private final DistributedIdGenerator idGenerator;
     private final StoreProductRepository storeProductRepository;
     private final ProductRepository productRepository;
     private final Map<Long, TrackedProduct> inMemoryTracked = new ConcurrentHashMap<>();
 
+    @Autowired
     public FirestoreTrackedProductRepository(@Autowired(required = false) Firestore firestore,
-                                            FirestoreSequenceService sequenceService,
+                                            DistributedIdGenerator idGenerator,
                                             @Lazy StoreProductRepository storeProductRepository,
                                             @Lazy ProductRepository productRepository) {
         this.firestore = firestore;
-        this.sequenceService = sequenceService;
+        this.idGenerator = idGenerator != null ? idGenerator : new DistributedIdGenerator();
         this.storeProductRepository = storeProductRepository;
         this.productRepository = productRepository;
+    }
+
+    public FirestoreTrackedProductRepository(Firestore firestore,
+                                            FirestoreSequenceService sequenceService,
+                                            StoreProductRepository storeProductRepository,
+                                            ProductRepository productRepository) {
+        this(firestore, new DistributedIdGenerator(), storeProductRepository, productRepository);
     }
 
     @Override
@@ -113,10 +122,8 @@ public class FirestoreTrackedProductRepository implements TrackedProductReposito
         if (trackedProduct == null) return null;
 
         if (trackedProduct.getId() == null) {
-            long newId = sequenceService.getNextSequence(COLLECTION_NAME);
+            long newId = idGenerator.nextId();
             trackedProduct.setId(newId);
-        } else {
-            sequenceService.ensureAtLeast(COLLECTION_NAME, trackedProduct.getId());
         }
 
         if (trackedProduct.getCreatedAt() == null) {

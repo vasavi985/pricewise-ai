@@ -4,9 +4,9 @@ import com.pricewise.backend.entity.Product;
 import com.pricewise.backend.entity.StoreProduct;
 import com.pricewise.backend.entity.TrackedProduct;
 import com.pricewise.backend.repository.firestore.FirestoreProductRepository;
-import com.pricewise.backend.repository.firestore.FirestoreSequenceService;
 import com.pricewise.backend.repository.firestore.FirestoreStoreProductRepository;
 import com.pricewise.backend.repository.firestore.FirestoreTrackedProductRepository;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,13 +20,50 @@ class FirestoreTrackedProductRepositoryTest {
     private FirestoreTrackedProductRepository trackedRepository;
     private FirestoreStoreProductRepository storeProductRepository;
     private FirestoreProductRepository productRepository;
+    private DistributedIdGenerator idGenerator;
 
     @BeforeEach
     void setUp() {
-        FirestoreSequenceService sequenceService = new FirestoreSequenceService(null);
-        productRepository = new FirestoreProductRepository(null, sequenceService);
-        storeProductRepository = new FirestoreStoreProductRepository(null, sequenceService);
-        trackedRepository = new FirestoreTrackedProductRepository(null, sequenceService, storeProductRepository, productRepository);
+        idGenerator = new DistributedIdGenerator(4L);
+        productRepository = new FirestoreProductRepository(null, idGenerator);
+        storeProductRepository = new FirestoreStoreProductRepository(null, idGenerator);
+        trackedRepository = new FirestoreTrackedProductRepository(null, idGenerator, storeProductRepository, productRepository);
+    }
+
+    @Test
+    void testSave_NullIdGetsGeneratedLong() {
+        TrackedProduct tp = new TrackedProduct();
+        tp.setStoreProductId(50L);
+        tp.setUserId("user-xyz");
+        tp.setTargetPrice(2000.0);
+
+        assertNull(tp.getId());
+        TrackedProduct saved = trackedRepository.save(tp);
+
+        assertNotNull(saved.getId());
+        assertTrue(saved.getId() > 0);
+        assertTrue(saved.getId() <= DistributedIdGenerator.MAX_SAFE_INTEGER);
+
+        Optional<TrackedProduct> found = trackedRepository.findById(saved.getId());
+        assertTrue(found.isPresent());
+        assertEquals("user-xyz", found.get().getUserId());
+    }
+
+    @Test
+    void testPreserveExistingId_AndLegacyIdSupport() {
+        TrackedProduct legacy = new TrackedProduct();
+        legacy.setId(1L);
+        legacy.setStoreProductId(1L);
+        legacy.setUserId("legacy-user");
+        legacy.setTargetPrice(50000.0);
+
+        TrackedProduct saved = trackedRepository.save(legacy);
+        assertEquals(1L, saved.getId(), "Existing manual/legacy ID 1L must be preserved");
+
+        Optional<TrackedProduct> found = trackedRepository.findById(1L);
+        assertTrue(found.isPresent());
+        assertEquals(1L, found.get().getId());
+        assertEquals("legacy-user", found.get().getUserId());
     }
 
     @Test

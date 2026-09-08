@@ -4,6 +4,7 @@ import com.google.api.core.ApiFuture;
 import com.google.cloud.firestore.*;
 import com.pricewise.backend.entity.NotificationRecord;
 import com.pricewise.backend.repository.NotificationRecordRepository;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,13 +21,18 @@ public class FirestoreNotificationRecordRepository implements NotificationRecord
     private static final String COLLECTION_NAME = "notificationRecords";
 
     private final Firestore firestore;
-    private final FirestoreSequenceService sequenceService;
+    private final DistributedIdGenerator idGenerator;
     private final Map<Long, NotificationRecord> inMemoryNotifications = new ConcurrentHashMap<>();
 
+    @Autowired
     public FirestoreNotificationRecordRepository(@Autowired(required = false) Firestore firestore,
-                                                FirestoreSequenceService sequenceService) {
+                                                DistributedIdGenerator idGenerator) {
         this.firestore = firestore;
-        this.sequenceService = sequenceService;
+        this.idGenerator = idGenerator != null ? idGenerator : new DistributedIdGenerator();
+    }
+
+    public FirestoreNotificationRecordRepository(Firestore firestore, FirestoreSequenceService sequenceService) {
+        this(firestore, new DistributedIdGenerator());
     }
 
     @Override
@@ -91,10 +97,8 @@ public class FirestoreNotificationRecordRepository implements NotificationRecord
         if (record == null) return null;
 
         if (record.getId() == null) {
-            long newId = sequenceService.getNextSequence(COLLECTION_NAME);
+            long newId = idGenerator.nextId();
             record.setId(newId);
-        } else {
-            sequenceService.ensureAtLeast(COLLECTION_NAME, record.getId());
         }
 
         if (record.getSentAt() == null) {

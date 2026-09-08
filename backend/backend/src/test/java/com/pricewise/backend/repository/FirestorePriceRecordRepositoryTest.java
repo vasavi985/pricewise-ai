@@ -2,7 +2,7 @@ package com.pricewise.backend.repository;
 
 import com.pricewise.backend.entity.PriceRecord;
 import com.pricewise.backend.repository.firestore.FirestorePriceRecordRepository;
-import com.pricewise.backend.repository.firestore.FirestoreSequenceService;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -15,11 +15,47 @@ import static org.junit.jupiter.api.Assertions.*;
 class FirestorePriceRecordRepositoryTest {
 
     private FirestorePriceRecordRepository repository;
+    private DistributedIdGenerator idGenerator;
 
     @BeforeEach
     void setUp() {
-        FirestoreSequenceService sequenceService = new FirestoreSequenceService(null);
-        repository = new FirestorePriceRecordRepository(null, sequenceService);
+        idGenerator = new DistributedIdGenerator(3L);
+        repository = new FirestorePriceRecordRepository(null, idGenerator);
+    }
+
+    @Test
+    void testSave_NullIdGetsGeneratedLong() {
+        PriceRecord record = new PriceRecord();
+        record.setProductId(10L);
+        record.setStoreProductId(20L);
+        record.setPrice(1500.0);
+
+        assertNull(record.getId());
+        PriceRecord saved = repository.save(record);
+
+        assertNotNull(saved.getId());
+        assertTrue(saved.getId() > 0);
+        assertTrue(saved.getId() <= DistributedIdGenerator.MAX_SAFE_INTEGER);
+
+        Optional<PriceRecord> found = repository.findById(saved.getId());
+        assertTrue(found.isPresent());
+        assertEquals(1500.0, found.get().getPrice());
+    }
+
+    @Test
+    void testPreserveExistingId_AndLegacyIdSupport() {
+        PriceRecord legacy = new PriceRecord();
+        legacy.setId(1L);
+        legacy.setProductId(1L);
+        legacy.setStoreProductId(1L);
+        legacy.setPrice(79900.0);
+
+        PriceRecord saved = repository.save(legacy);
+        assertEquals(1L, saved.getId(), "Existing manual/legacy ID 1L must be preserved");
+
+        Optional<PriceRecord> found = repository.findById(1L);
+        assertTrue(found.isPresent());
+        assertEquals(1L, found.get().getId());
     }
 
     @Test

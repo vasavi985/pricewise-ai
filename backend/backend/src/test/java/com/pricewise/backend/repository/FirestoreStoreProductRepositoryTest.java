@@ -1,8 +1,8 @@
 package com.pricewise.backend.repository;
 
 import com.pricewise.backend.entity.StoreProduct;
-import com.pricewise.backend.repository.firestore.FirestoreSequenceService;
 import com.pricewise.backend.repository.firestore.FirestoreStoreProductRepository;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,11 +14,48 @@ import static org.junit.jupiter.api.Assertions.*;
 class FirestoreStoreProductRepositoryTest {
 
     private FirestoreStoreProductRepository repository;
+    private DistributedIdGenerator idGenerator;
 
     @BeforeEach
     void setUp() {
-        FirestoreSequenceService sequenceService = new FirestoreSequenceService(null);
-        repository = new FirestoreStoreProductRepository(null, sequenceService);
+        idGenerator = new DistributedIdGenerator(2L);
+        repository = new FirestoreStoreProductRepository(null, idGenerator);
+    }
+
+    @Test
+    void testSave_NullIdGetsGeneratedLong() {
+        StoreProduct sp = new StoreProduct();
+        sp.setProductId(100L);
+        sp.setStore("AMAZON");
+        sp.setCurrentPrice(49999.0);
+
+        assertNull(sp.getId());
+        StoreProduct saved = repository.save(sp);
+
+        assertNotNull(saved.getId());
+        assertTrue(saved.getId() > 0);
+        assertTrue(saved.getId() <= DistributedIdGenerator.MAX_SAFE_INTEGER);
+
+        Optional<StoreProduct> found = repository.findById(saved.getId());
+        assertTrue(found.isPresent());
+        assertEquals("AMAZON", found.get().getStore());
+    }
+
+    @Test
+    void testPreserveExistingId_AndLegacyIdSupport() {
+        StoreProduct legacy = new StoreProduct();
+        legacy.setId(1L);
+        legacy.setProductId(1L);
+        legacy.setStore("CATALOG");
+        legacy.setCurrentPrice(79900.0);
+
+        StoreProduct saved = repository.save(legacy);
+        assertEquals(1L, saved.getId(), "Existing manual/legacy ID 1L must be preserved");
+
+        Optional<StoreProduct> found = repository.findById(1L);
+        assertTrue(found.isPresent());
+        assertEquals(1L, found.get().getId());
+        assertEquals("CATALOG", found.get().getStore());
     }
 
     @Test

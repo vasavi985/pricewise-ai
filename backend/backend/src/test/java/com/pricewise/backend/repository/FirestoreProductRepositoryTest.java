@@ -2,7 +2,7 @@ package com.pricewise.backend.repository;
 
 import com.pricewise.backend.entity.Product;
 import com.pricewise.backend.repository.firestore.FirestoreProductRepository;
-import com.pricewise.backend.repository.firestore.FirestoreSequenceService;
+import com.pricewise.backend.util.DistributedIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,29 +14,61 @@ import static org.junit.jupiter.api.Assertions.*;
 class FirestoreProductRepositoryTest {
 
     private FirestoreProductRepository repository;
+    private DistributedIdGenerator idGenerator;
 
     @BeforeEach
     void setUp() {
-        FirestoreSequenceService sequenceService = new FirestoreSequenceService(null);
-        repository = new FirestoreProductRepository(null, sequenceService);
+        idGenerator = new DistributedIdGenerator(1L);
+        repository = new FirestoreProductRepository(null, idGenerator);
     }
 
     @Test
-    void testSaveAndFindById() {
+    void testSaveAndFindById_NullIdGetsGeneratedLong() {
         Product p = new Product();
         p.setCanonicalName("Google Pixel 9");
         p.setBrand("Google");
         p.setCategory("Smartphones");
 
+        assertNull(p.getId(), "Initial ID must be null");
         Product saved = repository.save(p);
 
-        assertNotNull(saved.getId());
-        assertEquals(1L, saved.getId());
+        assertNotNull(saved.getId(), "Generated ID must not be null");
+        assertTrue(saved.getId() > 0, "Generated ID must be a positive Long");
+        assertTrue(saved.getId() <= DistributedIdGenerator.MAX_SAFE_INTEGER, "Generated ID must be within safe integer range");
 
-        Optional<Product> found = repository.findById(1L);
+        Optional<Product> found = repository.findById(saved.getId());
         assertTrue(found.isPresent());
         assertEquals("Google Pixel 9", found.get().getCanonicalName());
         assertEquals("Google", found.get().getBrand());
+    }
+
+    @Test
+    void testPreserveExistingId_AndLegacyIdSupport() {
+        // Test legacy ID 1L
+        Product legacy1 = new Product();
+        legacy1.setId(1L);
+        legacy1.setCanonicalName("Apple iPhone 15");
+        legacy1.setBrand("Apple");
+
+        Product savedLegacy1 = repository.save(legacy1);
+        assertEquals(1L, savedLegacy1.getId(), "Existing manual/legacy ID 1L must be strictly preserved");
+
+        Optional<Product> foundLegacy1 = repository.findById(1L);
+        assertTrue(foundLegacy1.isPresent());
+        assertEquals("Apple iPhone 15", foundLegacy1.get().getCanonicalName());
+
+        // Test legacy ID 2L
+        Product legacy2 = new Product();
+        legacy2.setId(2L);
+        legacy2.setCanonicalName("Apple MacBook Air M2");
+        legacy2.setBrand("Apple");
+
+        Product savedLegacy2 = repository.save(legacy2);
+        assertEquals(2L, savedLegacy2.getId(), "Existing manual/legacy ID 2L must be strictly preserved");
+
+        Optional<Product> foundLegacy2 = repository.findById(2L);
+        assertTrue(foundLegacy2.isPresent());
+        assertEquals("Apple MacBook Air M2", foundLegacy2.get().getCanonicalName());
     }
 
     @Test
