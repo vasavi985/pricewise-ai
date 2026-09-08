@@ -6,6 +6,7 @@ import com.pricewise.backend.dto.ProviderProductDTO;
 import com.pricewise.backend.provider.PriceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -16,16 +17,17 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
-public class AmazonPriceProvider implements PriceProvider {
+public class AmazonPriceProvider implements PriceProvider, DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(AmazonPriceProvider.class);
     private static final String DEFAULT_RAPIDAPI_HOST = "real-time-amazon-data.p.rapidapi.com";
     private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache to avoid excessive API calls
+    private static final int HARD_TIMEOUT_SECONDS = 6; // Strict 6-second hard deadline
 
     @Value("${rapidapi.key:}")
     private String rapidApiKey;
@@ -36,8 +38,12 @@ public class AmazonPriceProvider implements PriceProvider {
     @Value("${pricewise.providers.amazon.country:IN}")
     private String country;
 
+    @Value("${pricewise.providers.amazon.timeout-seconds:6}")
+    private int timeoutSeconds = HARD_TIMEOUT_SECONDS;
+
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
+    private final ExecutorService executorService;
 
     private volatile boolean isUnavailable = false;
     private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
@@ -65,15 +71,45 @@ public class AmazonPriceProvider implements PriceProvider {
         this.restClient = RestClient.builder()
                 .requestFactory(factory)
                 .build();
+        this.executorService = Executors.newFixedThreadPool(4, r -> {
+            Thread t = new Thread(r, "amazon-provider-pool");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     // Constructor for testing with mocked RestClient
     public AmazonPriceProvider(ObjectMapper objectMapper, RestClient restClient, String rapidApiKey, String rapidApiHost, String country) {
+        this(objectMapper, restClient, rapidApiKey, rapidApiHost, country, Executors.newFixedThreadPool(2, r -> {
+            Thread t = new Thread(r, "amazon-provider-test-pool");
+            t.setDaemon(true);
+            return t;
+        }));
+    }
+
+    public AmazonPriceProvider(ObjectMapper objectMapper, RestClient restClient, String rapidApiKey, String rapidApiHost, String country, ExecutorService executorService) {
+        this(objectMapper, restClient, rapidApiKey, rapidApiHost, country, executorService, HARD_TIMEOUT_SECONDS);
+    }
+
+    public AmazonPriceProvider(ObjectMapper objectMapper, RestClient restClient, String rapidApiKey, String rapidApiHost, String country, ExecutorService executorService, int timeoutSeconds) {
         this.objectMapper = objectMapper;
         this.restClient = restClient;
         this.rapidApiKey = rapidApiKey;
         this.rapidApiHost = rapidApiHost;
         this.country = country;
+        this.executorService = executorService != null ? executorService : Executors.newFixedThreadPool(2, r -> {
+            Thread t = new Thread(r, "amazon-provider-test-pool");
+            t.setDaemon(true);
+            return t;
+        });
+        this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : HARD_TIMEOUT_SECONDS;
+    }
+
+    @Override
+    public void destroy() {
+        if (executorService != null && !executorService.isShutdown()) {
+            executorService.shutdownNow();
+        }
     }
 
     @Override
@@ -131,52 +167,73 @@ public class AmazonPriceProvider implements PriceProvider {
             return cached.items;
         }
 
+        CompletableFuture<List<ProviderProductDTO>> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                log.info("Querying Real-Time Amazon Data API on [{}] for query: '{}' (country: {})", host, safeQuery, targetCountry);
+
+                String response = restClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .scheme("https")
+                                .host(host)
+                                .path("/search")
+                                .queryParam("query", safeQuery)
+                                .queryParam("page", "1")
+                                .queryParam("country", targetCountry)
+                                .build())
+                        .header("x-rapidapi-key", resolveApiKey())
+                        .header("x-rapidapi-host", host)
+                        .header("Accept", "application/json")
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
+                        .retrieve()
+                        .body(String.class);
+
+                if (response == null || response.trim().isEmpty()) {
+                    log.warn("Real-Time Amazon Data API returned empty response for query: '{}'", safeQuery);
+                    return Collections.<ProviderProductDTO>emptyList();
+                }
+
+                List<ProviderProductDTO> results = parseSearchResponse(response);
+                this.isUnavailable = false;
+
+                // Cache up to 100 queries
+                if (searchCache.size() > 100) {
+                    searchCache.clear();
+                }
+                searchCache.put(cacheKey, new CacheEntry(results));
+
+                log.info("Successfully fetched {} Amazon products for query: '{}'", results.size(), safeQuery);
+                return results;
+
+            } catch (RestClientResponseException e) {
+                log.error("Real-Time Amazon Data API returned HTTP error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+                this.isUnavailable = true;
+                return Collections.<ProviderProductDTO>emptyList();
+            } catch (ResourceAccessException e) {
+                log.error("Real-Time Amazon Data API connection/timeout error: {}", e.getMessage());
+                this.isUnavailable = true;
+                return Collections.<ProviderProductDTO>emptyList();
+            } catch (Exception e) {
+                log.error("Unexpected error querying Real-Time Amazon Data API: {}", e.getMessage());
+                this.isUnavailable = true;
+                return Collections.<ProviderProductDTO>emptyList();
+            }
+        }, executorService);
+
         try {
-            log.info("Querying Real-Time Amazon Data API on [{}] for query: '{}' (country: {})", host, safeQuery, targetCountry);
-
-            String response = restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .scheme("https")
-                            .host(host)
-                            .path("/search")
-                            .queryParam("query", safeQuery)
-                            .queryParam("page", "1")
-                            .queryParam("country", targetCountry)
-                            .build())
-                    .header("x-rapidapi-key", resolveApiKey())
-                    .header("x-rapidapi-host", host)
-                    .header("Accept", "application/json")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
-                    .retrieve()
-                    .body(String.class);
-
-            if (response == null || response.trim().isEmpty()) {
-                log.warn("Real-Time Amazon Data API returned empty response for query: '{}'", safeQuery);
-                return Collections.emptyList();
-            }
-
-            List<ProviderProductDTO> results = parseSearchResponse(response);
-            this.isUnavailable = false;
-
-            // Cache up to 100 queries
-            if (searchCache.size() > 100) {
-                searchCache.clear();
-            }
-            searchCache.put(cacheKey, new CacheEntry(results));
-
-            log.info("Successfully fetched {} Amazon products for query: '{}'", results.size(), safeQuery);
-            return results;
-
-        } catch (RestClientResponseException e) {
-            log.error("Real-Time Amazon Data API returned HTTP error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.warn("Amazon RapidAPI query for '{}' exceeded hard timeout of {}s. Returning empty result and marking Amazon unavailable.", safeQuery, timeoutSeconds);
             this.isUnavailable = true;
             return Collections.emptyList();
-        } catch (ResourceAccessException e) {
-            log.error("Real-Time Amazon Data API connection/timeout error: {}", e.getMessage());
+        } catch (InterruptedException e) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            log.warn("Amazon RapidAPI query for '{}' was interrupted.", safeQuery);
             this.isUnavailable = true;
             return Collections.emptyList();
-        } catch (Exception e) {
-            log.error("Unexpected error querying Real-Time Amazon Data API: {}", e.getMessage());
+        } catch (ExecutionException e) {
+            log.error("Execution exception during Amazon RapidAPI query for '{}': {}", safeQuery, e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
             this.isUnavailable = true;
             return Collections.emptyList();
         }
@@ -198,75 +255,91 @@ public class AmazonPriceProvider implements PriceProvider {
         String host = resolveApiHost();
         String targetCountry = resolveCountry();
 
+        CompletableFuture<ProviderProductDTO> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                log.info("Querying Real-Time Amazon Data API product details for ASIN: {} (country: {})", asin, targetCountry);
+
+                String response = restClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .scheme("https")
+                                .host(host)
+                                .path("/product-details")
+                                .queryParam("asin", asin)
+                                .queryParam("country", targetCountry)
+                                .build())
+                        .header("x-rapidapi-key", resolveApiKey())
+                        .header("x-rapidapi-host", host)
+                        .header("Accept", "application/json")
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
+                        .retrieve()
+                        .body(String.class);
+
+                if (response == null || response.trim().isEmpty()) {
+                    return null;
+                }
+
+                JsonNode root = objectMapper.readTree(response);
+                JsonNode dataNode = root.path("data");
+                if (dataNode.isMissingNode() || dataNode.isNull()) {
+                    dataNode = root;
+                }
+
+                String title = dataNode.path("product_title").asText(null);
+                String liveUrl = dataNode.path("product_url").asText(productUrl != null ? productUrl : "https://www.amazon.in/dp/" + asin);
+                String photo = dataNode.path("product_photo").asText(null);
+
+                String priceStr = dataNode.path("product_price").asText(null);
+                if (priceStr == null || priceStr.trim().isEmpty()) {
+                    priceStr = dataNode.path("product_minimum_offer_price").asText(null);
+                }
+                if (priceStr == null || priceStr.trim().isEmpty()) {
+                    priceStr = dataNode.path("product_original_price").asText(null);
+                }
+
+                Double price = parsePrice(priceStr);
+                if (price == null || price <= 0) {
+                    return null;
+                }
+
+                String currency = dataNode.path("currency").asText(targetCountry.equalsIgnoreCase("IN") ? "INR" : "USD");
+                Double rating = parseRating(dataNode.path("product_star_rating").asText(null));
+                String availability = dataNode.path("product_availability").asText("IN_STOCK");
+
+                return new ProviderProductDTO(
+                        "AMAZON",
+                        asin,
+                        title != null ? title.trim() : "Amazon Product (" + asin + ")",
+                        title != null ? extractCanonicalName(title) : "Amazon Product (" + asin + ")",
+                        title != null ? extractBrand(title) : "Amazon",
+                        "",
+                        "Electronics & Consumer Goods",
+                        "Amazon Verified Listing",
+                        photo,
+                        liveUrl,
+                        price,
+                        currency,
+                        availability,
+                        "LIVE",
+                        rating
+                );
+
+            } catch (Exception e) {
+                log.error("Failed to fetch Amazon product details for ASIN {}: {}", asin, e.getMessage());
+                return null;
+            }
+        }, executorService);
+
         try {
-            log.info("Querying Real-Time Amazon Data API product details for ASIN: {} (country: {})", asin, targetCountry);
-
-            String response = restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .scheme("https")
-                            .host(host)
-                            .path("/product-details")
-                            .queryParam("asin", asin)
-                            .queryParam("country", targetCountry)
-                            .build())
-                    .header("x-rapidapi-key", resolveApiKey())
-                    .header("x-rapidapi-host", host)
-                    .header("Accept", "application/json")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
-                    .retrieve()
-                    .body(String.class);
-
-            if (response == null || response.trim().isEmpty()) {
-                return null;
-            }
-
-            JsonNode root = objectMapper.readTree(response);
-            JsonNode dataNode = root.path("data");
-            if (dataNode.isMissingNode() || dataNode.isNull()) {
-                dataNode = root;
-            }
-
-            String title = dataNode.path("product_title").asText(null);
-            String liveUrl = dataNode.path("product_url").asText(productUrl != null ? productUrl : "https://www.amazon.in/dp/" + asin);
-            String photo = dataNode.path("product_photo").asText(null);
-
-            String priceStr = dataNode.path("product_price").asText(null);
-            if (priceStr == null || priceStr.trim().isEmpty()) {
-                priceStr = dataNode.path("product_minimum_offer_price").asText(null);
-            }
-            if (priceStr == null || priceStr.trim().isEmpty()) {
-                priceStr = dataNode.path("product_original_price").asText(null);
-            }
-
-            Double price = parsePrice(priceStr);
-            if (price == null || price <= 0) {
-                return null;
-            }
-
-            String currency = dataNode.path("currency").asText(targetCountry.equalsIgnoreCase("IN") ? "INR" : "USD");
-            Double rating = parseRating(dataNode.path("product_star_rating").asText(null));
-            String availability = dataNode.path("product_availability").asText("IN_STOCK");
-
-            return new ProviderProductDTO(
-                    "AMAZON",
-                    asin,
-                    title != null ? title.trim() : "Amazon Product (" + asin + ")",
-                    title != null ? extractCanonicalName(title) : "Amazon Product (" + asin + ")",
-                    title != null ? extractBrand(title) : "Amazon",
-                    "",
-                    "Electronics & Consumer Goods",
-                    "Amazon Verified Listing",
-                    photo,
-                    liveUrl,
-                    price,
-                    currency,
-                    availability,
-                    "LIVE",
-                    rating
-            );
-
-        } catch (Exception e) {
-            log.error("Failed to fetch Amazon product details for ASIN {}: {}", asin, e.getMessage());
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.warn("Amazon product details for ASIN {} exceeded hard timeout of {}s.", asin, timeoutSeconds);
+            return null;
+        } catch (InterruptedException e) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (ExecutionException e) {
             return null;
         }
     }

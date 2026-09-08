@@ -215,4 +215,40 @@ class AmazonPriceProviderTest {
         assertTrue(nestedErrorList.isEmpty());
         assertEquals("UNAVAILABLE", configuredProvider.getStoreStatus(), "Provider should report UNAVAILABLE when API reports error");
     }
+
+    @Test
+    @DisplayName("When searchProducts exceeds configured timeout, cancels future, returns empty list, and sets UNAVAILABLE")
+    void testSearchProductsTimeout() {
+        java.util.concurrent.ExecutorService slowExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(() -> {
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ignored) {}
+                r.run();
+            });
+            t.setDaemon(true);
+            return t;
+        });
+
+        AmazonPriceProvider timeoutProvider = new AmazonPriceProvider(
+                objectMapper,
+                RestClient.builder().build(),
+                "dummy-key",
+                "real-time-amazon-data.p.rapidapi.com",
+                "IN",
+                slowExecutor,
+                1 // 1 second timeout for test speed
+        );
+
+        long start = System.currentTimeMillis();
+        List<ProviderProductDTO> result = timeoutProvider.searchProducts("timeout test");
+        long duration = System.currentTimeMillis() - start;
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty(), "Timed out search should return empty list");
+        assertTrue(duration >= 900 && duration < 2500, "Should abort around 1s, duration was: " + duration);
+        assertEquals("UNAVAILABLE", timeoutProvider.getStoreStatus(), "Timed out search should mark provider UNAVAILABLE");
+
+        slowExecutor.shutdownNow();
+    }
 }
