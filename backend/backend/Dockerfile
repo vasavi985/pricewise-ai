@@ -1,7 +1,7 @@
 # ===================================================
-# Stage 1: Build the application with Maven & Java 21
+# Stage 1: Build the application with Maven & Java 21 (glibc)
 # ===================================================
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
+FROM maven:3.9.9-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
@@ -21,9 +21,10 @@ RUN mvn clean package -DskipTests -B
 RUN cp $(ls /app/target/*.jar | grep -v '\.original$' | head -n 1) /app/target/app.jar
 
 # ===================================================
-# Stage 2: Production Runtime with Minimal JRE 21
+# Stage 2: Production Runtime with Eclipse Temurin 21 JRE (glibc / Ubuntu Jammy)
+# Eliminates musl libc incompatibility with grpc-netty-shaded tcnative
 # ===================================================
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-jammy
 
 # Metadata
 LABEL maintainer="PriceWise AI Team"
@@ -31,14 +32,11 @@ LABEL description="PriceWise AI Spring Boot Backend for Render Web Service"
 
 WORKDIR /app
 
-# Create unprivileged system user for security
-RUN addgroup -S spring && adduser -S spring -G spring
+# Create unprivileged system user for security (Debian/Ubuntu syntax)
+RUN groupadd -r spring && useradd -r -g spring spring
 
-# Copy packaged JAR from builder stage
-COPY --from=builder /app/target/app.jar /app/app.jar
-
-# Set ownership to unprivileged user
-RUN chown -R spring:spring /app
+# Copy packaged JAR from builder stage with unprivileged ownership
+COPY --from=builder --chown=spring:spring /app/target/app.jar /app/app.jar
 
 # Switch to non-root user
 USER spring:spring
