@@ -23,6 +23,8 @@ public class FirestoreStoreProductRepository implements StoreProductRepository {
     private final Firestore firestore;
     private final DistributedIdGenerator idGenerator;
     private final Map<Long, StoreProduct> inMemoryStoreProducts = new ConcurrentHashMap<>();
+    private final Object cacheLock = new Object();
+    private volatile boolean cacheInitialized = false;
 
     @Autowired
     public FirestoreStoreProductRepository(@Autowired(required = false) Firestore firestore,
@@ -35,41 +37,64 @@ public class FirestoreStoreProductRepository implements StoreProductRepository {
         this(firestore, new DistributedIdGenerator());
     }
 
-    @Override
-    public List<StoreProduct> findAll() {
-        if (firestore == null) {
-            List<StoreProduct> list = new ArrayList<>(inMemoryStoreProducts.values());
-            list.sort(Comparator.comparing(sp -> sp.getId() != null ? sp.getId() : 0L));
-            return list;
+    private void ensureCacheInitialized() {
+        if (firestore == null || cacheInitialized) {
+            return;
         }
 
-        try {
-            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-            List<StoreProduct> list = new ArrayList<>();
-            for (DocumentSnapshot doc : docs) {
-                StoreProduct sp = fromSnapshot(doc);
-                if (sp != null && sp.getId() != null) {
-                    list.add(sp);
-                    inMemoryStoreProducts.put(sp.getId(), sp);
+        synchronized (cacheLock) {
+            if (!cacheInitialized) {
+                log.info("Initializing in-memory store product cache from Firestore...");
+                try {
+                    ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
+                    List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+                    for (DocumentSnapshot doc : docs) {
+                        StoreProduct sp = fromSnapshot(doc);
+                        if (sp != null && sp.getId() != null) {
+                            inMemoryStoreProducts.put(sp.getId(), sp);
+                        }
+                    }
+                    log.info("Loaded {} store products from Firestore into in-memory cache.", inMemoryStoreProducts.size());
+                } catch (Exception e) {
+                    log.error("Failed to initialize store product cache from Firestore: {}", e.getMessage());
+                } finally {
+                    cacheInitialized = true;
                 }
             }
-            list.sort(Comparator.comparing(sp -> sp.getId() != null ? sp.getId() : 0L));
-            return list;
-        } catch (Exception e) {
-            log.error("Failed to fetch store products from Firestore: {}", e.getMessage());
-            List<StoreProduct> list = new ArrayList<>(inMemoryStoreProducts.values());
-            list.sort(Comparator.comparing(sp -> sp.getId() != null ? sp.getId() : 0L));
-            return list;
         }
+    }
+
+    public boolean isCacheInitialized() {
+        return cacheInitialized;
+    }
+
+    public void resetCacheForTesting() {
+        synchronized (cacheLock) {
+            inMemoryStoreProducts.clear();
+            cacheInitialized = false;
+        }
+    }
+
+    @Override
+    public List<StoreProduct> findAll() {
+        ensureCacheInitialized();
+        List<StoreProduct> list = new ArrayList<>(inMemoryStoreProducts.values());
+        list.sort(Comparator.comparing(sp -> sp.getId() != null ? sp.getId() : 0L));
+        return list;
     }
 
     @Override
     public Optional<StoreProduct> findById(Long id) {
         if (id == null) return Optional.empty();
 
+        ensureCacheInitialized();
+        StoreProduct cached = inMemoryStoreProducts.get(id);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+
         if (firestore == null) {
-            return Optional.ofNullable(inMemoryStoreProducts.get(id));
+            return Optional.empty();
         }
 
         try {
@@ -85,10 +110,10 @@ public class FirestoreStoreProductRepository implements StoreProductRepository {
                     return Optional.of(sp);
                 }
             }
-            return Optional.ofNullable(inMemoryStoreProducts.get(id));
+            return Optional.empty();
         } catch (Exception e) {
             log.error("Failed to find store product [{}] in Firestore: {}", id, e.getMessage());
-            return Optional.ofNullable(inMemoryStoreProducts.get(id));
+            return Optional.empty();
         }
     }
 
@@ -128,50 +153,23 @@ public class FirestoreStoreProductRepository implements StoreProductRepository {
     public List<StoreProduct> findByProductId(Long productId) {
         if (productId == null) return Collections.emptyList();
 
-        if (firestore == null) {
-            List<StoreProduct> matches = new ArrayList<>();
-            for (StoreProduct sp : inMemoryStoreProducts.values()) {
-                if (productId.equals(sp.getProductId())) {
-                    matches.add(sp);
-                }
+        ensureCacheInitialized();
+        List<StoreProduct> matches = new ArrayList<>();
+        for (StoreProduct sp : inMemoryStoreProducts.values()) {
+            if (productId.equals(sp.getProductId())) {
+                matches.add(sp);
             }
-            return matches;
         }
-
-        try {
-            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME)
-                    .whereEqualTo("productId", productId)
-                    .get();
-
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-            List<StoreProduct> list = new ArrayList<>();
-            for (DocumentSnapshot doc : docs) {
-                StoreProduct sp = fromSnapshot(doc);
-                if (sp != null) {
-                    list.add(sp);
-                    inMemoryStoreProducts.put(sp.getId(), sp);
-                }
-            }
-            return list;
-        } catch (Exception e) {
-            log.error("Failed to find store products for productId [{}] in Firestore: {}", productId, e.getMessage());
-            List<StoreProduct> matches = new ArrayList<>();
-            for (StoreProduct sp : inMemoryStoreProducts.values()) {
-                if (productId.equals(sp.getProductId())) {
-                    matches.add(sp);
-                }
-            }
-            return matches;
-        }
+        return matches;
     }
 
     @Override
     public Optional<StoreProduct> findByProductIdAndStore(Long productId, String store) {
         if (productId == null || store == null) return Optional.empty();
 
-        List<StoreProduct> list = findByProductId(productId);
-        for (StoreProduct sp : list) {
-            if (store.equalsIgnoreCase(sp.getStore())) {
+        ensureCacheInitialized();
+        for (StoreProduct sp : inMemoryStoreProducts.values()) {
+            if (productId.equals(sp.getProductId()) && store.equalsIgnoreCase(sp.getStore())) {
                 return Optional.of(sp);
             }
         }
@@ -182,12 +180,14 @@ public class FirestoreStoreProductRepository implements StoreProductRepository {
     public Optional<StoreProduct> findByStoreAndStoreProductId(String store, String storeProductId) {
         if (store == null || storeProductId == null) return Optional.empty();
 
-        if (firestore == null) {
-            for (StoreProduct sp : inMemoryStoreProducts.values()) {
-                if (store.equalsIgnoreCase(sp.getStore()) && storeProductId.equalsIgnoreCase(sp.getStoreProductId())) {
-                    return Optional.of(sp);
-                }
+        ensureCacheInitialized();
+        for (StoreProduct sp : inMemoryStoreProducts.values()) {
+            if (store.equalsIgnoreCase(sp.getStore()) && storeProductId.equalsIgnoreCase(sp.getStoreProductId())) {
+                return Optional.of(sp);
             }
+        }
+
+        if (firestore == null) {
             return Optional.empty();
         }
 
@@ -210,25 +210,13 @@ public class FirestoreStoreProductRepository implements StoreProductRepository {
             log.error("Failed to find store product by store/id in Firestore: {}", e.getMessage());
         }
 
-        for (StoreProduct sp : inMemoryStoreProducts.values()) {
-            if (store.equalsIgnoreCase(sp.getStore()) && storeProductId.equalsIgnoreCase(sp.getStoreProductId())) {
-                return Optional.of(sp);
-            }
-        }
-
         return Optional.empty();
     }
 
     @Override
     public long count() {
-        if (firestore == null) {
-            return inMemoryStoreProducts.size();
-        }
-        try {
-            return firestore.collection(COLLECTION_NAME).get().get().size();
-        } catch (Exception e) {
-            return inMemoryStoreProducts.size();
-        }
+        ensureCacheInitialized();
+        return inMemoryStoreProducts.size();
     }
 
     @Override

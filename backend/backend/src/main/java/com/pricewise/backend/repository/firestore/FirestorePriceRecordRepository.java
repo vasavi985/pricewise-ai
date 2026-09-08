@@ -23,10 +23,13 @@ public class FirestorePriceRecordRepository implements PriceRecordRepository {
     private final Firestore firestore;
     private final DistributedIdGenerator idGenerator;
     private final Map<Long, PriceRecord> inMemoryRecords = new ConcurrentHashMap<>();
+    private final Map<Long, PriceRecord> latestByStoreProductId = new ConcurrentHashMap<>();
+    private final Object cacheLock = new Object();
+    private volatile boolean cacheInitialized = false;
 
     @Autowired
     public FirestorePriceRecordRepository(@Autowired(required = false) Firestore firestore,
-                                         DistributedIdGenerator idGenerator) {
+                                          DistributedIdGenerator idGenerator) {
         this.firestore = firestore;
         this.idGenerator = idGenerator != null ? idGenerator : new DistributedIdGenerator();
     }
@@ -35,41 +38,79 @@ public class FirestorePriceRecordRepository implements PriceRecordRepository {
         this(firestore, new DistributedIdGenerator());
     }
 
-    @Override
-    public List<PriceRecord> findAll() {
-        if (firestore == null) {
-            List<PriceRecord> list = new ArrayList<>(inMemoryRecords.values());
-            list.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
-            return list;
+    private void ensureCacheInitialized() {
+        if (firestore == null || cacheInitialized) {
+            return;
         }
 
-        try {
-            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-            List<PriceRecord> list = new ArrayList<>();
-            for (DocumentSnapshot doc : docs) {
-                PriceRecord r = fromSnapshot(doc);
-                if (r != null && r.getId() != null) {
-                    list.add(r);
-                    inMemoryRecords.put(r.getId(), r);
+        synchronized (cacheLock) {
+            if (!cacheInitialized) {
+                log.info("Initializing in-memory price records cache from Firestore...");
+                try {
+                    ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
+                    List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+                    for (DocumentSnapshot doc : docs) {
+                        PriceRecord r = fromSnapshot(doc);
+                        if (r != null && r.getId() != null) {
+                            inMemoryRecords.put(r.getId(), r);
+                            updateLatestCache(r);
+                        }
+                    }
+                    log.info("Loaded {} price records from Firestore into in-memory cache ({} unique storeProducts).",
+                            inMemoryRecords.size(), latestByStoreProductId.size());
+                } catch (Exception e) {
+                    log.error("Failed to initialize price records cache from Firestore: {}", e.getMessage());
+                } finally {
+                    cacheInitialized = true;
                 }
             }
-            list.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
-            return list;
-        } catch (Exception e) {
-            log.error("Failed to fetch price records from Firestore: {}", e.getMessage());
-            List<PriceRecord> list = new ArrayList<>(inMemoryRecords.values());
-            list.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
-            return list;
         }
+    }
+
+    private void updateLatestCache(PriceRecord r) {
+        if (r == null || r.getStoreProductId() == null) return;
+        latestByStoreProductId.compute(r.getStoreProductId(), (spId, existing) -> {
+            if (existing == null) {
+                return r;
+            }
+            LocalDateTime existingTime = existing.getCheckedAt() != null ? existing.getCheckedAt() : LocalDateTime.MIN;
+            LocalDateTime newTime = r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN;
+            return (newTime.isAfter(existingTime) || newTime.isEqual(existingTime)) ? r : existing;
+        });
+    }
+
+    public boolean isCacheInitialized() {
+        return cacheInitialized;
+    }
+
+    public void resetCacheForTesting() {
+        synchronized (cacheLock) {
+            inMemoryRecords.clear();
+            latestByStoreProductId.clear();
+            cacheInitialized = false;
+        }
+    }
+
+    @Override
+    public List<PriceRecord> findAll() {
+        ensureCacheInitialized();
+        List<PriceRecord> list = new ArrayList<>(inMemoryRecords.values());
+        list.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
+        return list;
     }
 
     @Override
     public Optional<PriceRecord> findById(Long id) {
         if (id == null) return Optional.empty();
 
+        ensureCacheInitialized();
+        PriceRecord cached = inMemoryRecords.get(id);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+
         if (firestore == null) {
-            return Optional.ofNullable(inMemoryRecords.get(id));
+            return Optional.empty();
         }
 
         try {
@@ -82,13 +123,14 @@ public class FirestorePriceRecordRepository implements PriceRecordRepository {
                 PriceRecord r = fromSnapshot(doc);
                 if (r != null) {
                     inMemoryRecords.put(r.getId(), r);
+                    updateLatestCache(r);
                     return Optional.of(r);
                 }
             }
-            return Optional.ofNullable(inMemoryRecords.get(id));
+            return Optional.empty();
         } catch (Exception e) {
             log.error("Failed to find price record [{}] in Firestore: {}", id, e.getMessage());
-            return Optional.ofNullable(inMemoryRecords.get(id));
+            return Optional.empty();
         }
     }
 
@@ -120,6 +162,7 @@ public class FirestorePriceRecordRepository implements PriceRecordRepository {
         }
 
         inMemoryRecords.put(record.getId(), record);
+        updateLatestCache(record);
 
         if (firestore != null) {
             try {
@@ -139,135 +182,85 @@ public class FirestorePriceRecordRepository implements PriceRecordRepository {
     public List<PriceRecord> findByStoreProductIdOrderByCheckedAtAsc(Long storeProductId) {
         if (storeProductId == null) return Collections.emptyList();
 
-        List<PriceRecord> records = fetchByStoreProductId(storeProductId);
-        records.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
-        return records;
+        ensureCacheInitialized();
+        List<PriceRecord> list = new ArrayList<>();
+        for (PriceRecord r : inMemoryRecords.values()) {
+            if (storeProductId.equals(r.getStoreProductId())) {
+                list.add(r);
+            }
+        }
+        list.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
+        return list;
     }
 
     @Override
     public Optional<PriceRecord> findFirstByStoreProductIdOrderByCheckedAtDesc(Long storeProductId) {
         if (storeProductId == null) return Optional.empty();
 
-        List<PriceRecord> records = fetchByStoreProductId(storeProductId);
-        if (records.isEmpty()) return Optional.empty();
+        ensureCacheInitialized();
 
-        records.sort((a, b) -> {
-            LocalDateTime ta = a.getCheckedAt() != null ? a.getCheckedAt() : LocalDateTime.MIN;
-            LocalDateTime tb = b.getCheckedAt() != null ? b.getCheckedAt() : LocalDateTime.MIN;
-            return tb.compareTo(ta);
-        });
+        PriceRecord cached = latestByStoreProductId.get(storeProductId);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
 
-        return Optional.of(records.get(0));
+        List<PriceRecord> inMemMatches = new ArrayList<>();
+        for (PriceRecord r : inMemoryRecords.values()) {
+            if (storeProductId.equals(r.getStoreProductId())) {
+                inMemMatches.add(r);
+            }
+        }
+        if (!inMemMatches.isEmpty()) {
+            inMemMatches.sort((a, b) -> {
+                LocalDateTime ta = a.getCheckedAt() != null ? a.getCheckedAt() : LocalDateTime.MIN;
+                LocalDateTime tb = b.getCheckedAt() != null ? b.getCheckedAt() : LocalDateTime.MIN;
+                return tb.compareTo(ta);
+            });
+            updateLatestCache(inMemMatches.get(0));
+            return Optional.of(inMemMatches.get(0));
+        }
+
+        return Optional.empty();
     }
 
     @Override
     public List<PriceRecord> findByProductIdOrderByCheckedAtAsc(Long productId) {
         if (productId == null) return Collections.emptyList();
 
-        List<PriceRecord> records = fetchByProductId(productId);
-        records.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
-        return records;
+        ensureCacheInitialized();
+        List<PriceRecord> list = new ArrayList<>();
+        for (PriceRecord r : inMemoryRecords.values()) {
+            if (productId.equals(r.getProductId())) {
+                list.add(r);
+            }
+        }
+        list.sort(Comparator.comparing(r -> r.getCheckedAt() != null ? r.getCheckedAt() : LocalDateTime.MIN));
+        return list;
     }
 
     @Override
     public List<PriceRecord> findByProductIdOrderByCheckedAtDesc(Long productId) {
         if (productId == null) return Collections.emptyList();
 
-        List<PriceRecord> records = fetchByProductId(productId);
-        records.sort((a, b) -> {
+        ensureCacheInitialized();
+        List<PriceRecord> list = new ArrayList<>();
+        for (PriceRecord r : inMemoryRecords.values()) {
+            if (productId.equals(r.getProductId())) {
+                list.add(r);
+            }
+        }
+        list.sort((a, b) -> {
             LocalDateTime ta = a.getCheckedAt() != null ? a.getCheckedAt() : LocalDateTime.MIN;
             LocalDateTime tb = b.getCheckedAt() != null ? b.getCheckedAt() : LocalDateTime.MIN;
             return tb.compareTo(ta);
         });
-        return records;
+        return list;
     }
 
     @Override
     public long count() {
-        if (firestore == null) {
-            return inMemoryRecords.size();
-        }
-        try {
-            return firestore.collection(COLLECTION_NAME).get().get().size();
-        } catch (Exception e) {
-            return inMemoryRecords.size();
-        }
-    }
-
-    private List<PriceRecord> fetchByStoreProductId(Long storeProductId) {
-        if (firestore == null) {
-            List<PriceRecord> list = new ArrayList<>();
-            for (PriceRecord r : inMemoryRecords.values()) {
-                if (storeProductId.equals(r.getStoreProductId())) {
-                    list.add(r);
-                }
-            }
-            return list;
-        }
-
-        try {
-            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME)
-                    .whereEqualTo("storeProductId", storeProductId)
-                    .get();
-
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-            List<PriceRecord> list = new ArrayList<>();
-            for (DocumentSnapshot doc : docs) {
-                PriceRecord r = fromSnapshot(doc);
-                if (r != null) {
-                    list.add(r);
-                    inMemoryRecords.put(r.getId(), r);
-                }
-            }
-            return list;
-        } catch (Exception e) {
-            log.error("Failed to query price records by storeProductId [{}] in Firestore: {}", storeProductId, e.getMessage());
-            List<PriceRecord> list = new ArrayList<>();
-            for (PriceRecord r : inMemoryRecords.values()) {
-                if (storeProductId.equals(r.getStoreProductId())) {
-                    list.add(r);
-                }
-            }
-            return list;
-        }
-    }
-
-    private List<PriceRecord> fetchByProductId(Long productId) {
-        if (firestore == null) {
-            List<PriceRecord> list = new ArrayList<>();
-            for (PriceRecord r : inMemoryRecords.values()) {
-                if (productId.equals(r.getProductId())) {
-                    list.add(r);
-                }
-            }
-            return list;
-        }
-
-        try {
-            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME)
-                    .whereEqualTo("productId", productId)
-                    .get();
-
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-            List<PriceRecord> list = new ArrayList<>();
-            for (DocumentSnapshot doc : docs) {
-                PriceRecord r = fromSnapshot(doc);
-                if (r != null) {
-                    list.add(r);
-                    inMemoryRecords.put(r.getId(), r);
-                }
-            }
-            return list;
-        } catch (Exception e) {
-            log.error("Failed to query price records by productId [{}] in Firestore: {}", productId, e.getMessage());
-            List<PriceRecord> list = new ArrayList<>();
-            for (PriceRecord r : inMemoryRecords.values()) {
-                if (productId.equals(r.getProductId())) {
-                    list.add(r);
-                }
-            }
-            return list;
-        }
+        ensureCacheInitialized();
+        return inMemoryRecords.size();
     }
 
     private Map<String, Object> toMap(PriceRecord record) {
