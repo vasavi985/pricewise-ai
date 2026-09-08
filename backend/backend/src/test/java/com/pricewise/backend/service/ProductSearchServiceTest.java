@@ -146,4 +146,35 @@ class ProductSearchServiceTest {
         assertEquals("CATALOG", result.getResults().get(0).getBestStore());
         assertEquals(71499.0, result.getResults().get(0).getLowestPrice());
     }
+
+    @Test
+    @DisplayName("Repeated search calls execute legacy product synchronization at most once and do not save unmodified products")
+    void testRepeatedSearchCallsExecuteLegacySyncOnlyOnce() {
+        Product p = new Product();
+        p.setId(10L);
+        p.setProductName("MacBook Air M2");
+        p.setCanonicalName("MacBook Air M2");
+        p.setImageUrl("https://example.com/macbook.jpg");
+
+        when(productRepository.findAll()).thenReturn(List.of(p));
+        when(productRepository.searchProducts(eq("MacBook Air M2"))).thenReturn(List.of(p));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(p));
+        when(providerManager.searchAll(any())).thenReturn(Collections.emptyList());
+        when(providerManager.getProviderStatuses()).thenReturn(Collections.emptyList());
+        when(priceComparisonService.comparePrices(any())).thenReturn(new PriceComparisonDTO());
+
+        // First search call: executes syncLegacyProducts once
+        productSearchService.search("MacBook Air M2");
+        assertTrue(productSearchService.isLegacySynced());
+
+        // Second and third search calls: should bypass syncLegacyProducts immediately
+        productSearchService.search("MacBook Air M2");
+        productSearchService.search("MacBook Air M2");
+
+        // Verify productRepository.findAll() was only invoked ONCE (during the first syncLegacyProducts)
+        Mockito.verify(productRepository, Mockito.times(1)).findAll();
+
+        // Since the product already had canonicalName and imageUrl, productRepository.save should NOT be called
+        Mockito.verify(productRepository, Mockito.never()).save(p);
+    }
 }

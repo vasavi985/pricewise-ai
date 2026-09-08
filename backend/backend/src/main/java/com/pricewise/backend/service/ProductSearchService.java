@@ -85,26 +85,56 @@ public class ProductSearchService {
         return new ProductSearchResultDTO(safeQuery, comparisons, providerManager.getProviderStatuses());
     }
 
+    private volatile boolean legacySynced = false;
+
     public void syncLegacyProducts() {
-        List<Product> all = productRepository.findAll();
-        for (Product p : all) {
-            String canonicalName = p.getCanonicalName() != null ? p.getCanonicalName() : p.getProductName();
-            if (p.getCanonicalName() == null) {
-                p.setCanonicalName(canonicalName);
-            }
-
-            Double benchmarkPrice = p.getFlipkartPrice() != null ? p.getFlipkartPrice()
-                    : (p.getAmazonPrice() != null ? p.getAmazonPrice() : p.getCromaPrice());
-
-            if (benchmarkPrice != null && benchmarkPrice > 0) {
-                ensureCatalogStoreProduct(p, benchmarkPrice);
-            }
-
-            if (p.getImageUrl() == null) {
-                p.setImageUrl(getDefaultImage(canonicalName));
-            }
-            productRepository.save(p);
+        if (legacySynced) {
+            return;
         }
+
+        synchronized (this) {
+            if (legacySynced) {
+                return;
+            }
+
+            log.info("Running one-time legacy product synchronization...");
+            List<Product> all = productRepository.findAll();
+            for (Product p : all) {
+                boolean modified = false;
+
+                String canonicalName = p.getCanonicalName() != null ? p.getCanonicalName() : p.getProductName();
+                if (p.getCanonicalName() == null && canonicalName != null) {
+                    p.setCanonicalName(canonicalName);
+                    modified = true;
+                }
+
+                Double benchmarkPrice = p.getFlipkartPrice() != null ? p.getFlipkartPrice()
+                        : (p.getAmazonPrice() != null ? p.getAmazonPrice() : p.getCromaPrice());
+
+                if (benchmarkPrice != null && benchmarkPrice > 0) {
+                    ensureCatalogStoreProduct(p, benchmarkPrice);
+                }
+
+                if (p.getImageUrl() == null) {
+                    p.setImageUrl(getDefaultImage(canonicalName));
+                    modified = true;
+                }
+
+                if (modified) {
+                    productRepository.save(p);
+                }
+            }
+            legacySynced = true;
+            log.info("Completed one-time legacy product synchronization.");
+        }
+    }
+
+    public boolean isLegacySynced() {
+        return legacySynced;
+    }
+
+    public void resetLegacySyncedForTesting() {
+        this.legacySynced = false;
     }
 
     private void ensureCatalogStoreProduct(Product product, Double price) {
