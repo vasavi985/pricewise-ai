@@ -153,6 +153,18 @@ public class ProductSearchService {
             existing = productRepository.findByProductNameIgnoreCase(canonical);
         }
 
+        if (existing.isEmpty()) {
+            List<Product> allProducts = productRepository.findAll();
+            String lowerCanonical = canonical.toLowerCase();
+            for (Product p : allProducts) {
+                String pName = (p.getCanonicalName() != null ? p.getCanonicalName() : p.getProductName()).toLowerCase();
+                if (!pName.isEmpty() && (lowerCanonical.contains(pName) || pName.contains(lowerCanonical))) {
+                    existing = Optional.of(p);
+                    break;
+                }
+            }
+        }
+
         if (existing.isPresent()) {
             Product p = existing.get();
             if (p.getImageUrl() == null && item.getImageUrl() != null) {

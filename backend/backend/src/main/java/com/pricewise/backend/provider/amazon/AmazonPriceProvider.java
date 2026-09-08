@@ -133,12 +133,20 @@ public class AmazonPriceProvider implements PriceProvider {
 
         try {
             log.info("Querying Real-Time Amazon Data API on [{}] for query: '{}' (country: {})", host, safeQuery, targetCountry);
-            String url = String.format("https://%s/search?query={query}&page=1&country={country}", host);
 
             String response = restClient.get()
-                    .uri(url, safeQuery, targetCountry)
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https")
+                            .host(host)
+                            .path("/search")
+                            .queryParam("query", safeQuery)
+                            .queryParam("page", "1")
+                            .queryParam("country", targetCountry)
+                            .build())
                     .header("x-rapidapi-key", resolveApiKey())
                     .header("x-rapidapi-host", host)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
                     .retrieve()
                     .body(String.class);
 
@@ -160,10 +168,8 @@ public class AmazonPriceProvider implements PriceProvider {
             return results;
 
         } catch (RestClientResponseException e) {
-            log.error("Real-Time Amazon Data API returned HTTP error: status={}, message={}", e.getStatusCode(), e.getMessage());
-            if (e.getStatusCode().is5xxServerError()) {
-                this.isUnavailable = true;
-            }
+            log.error("Real-Time Amazon Data API returned HTTP error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            this.isUnavailable = true;
             return Collections.emptyList();
         } catch (ResourceAccessException e) {
             log.error("Real-Time Amazon Data API connection/timeout error: {}", e.getMessage());
@@ -171,6 +177,7 @@ public class AmazonPriceProvider implements PriceProvider {
             return Collections.emptyList();
         } catch (Exception e) {
             log.error("Unexpected error querying Real-Time Amazon Data API: {}", e.getMessage());
+            this.isUnavailable = true;
             return Collections.emptyList();
         }
     }
@@ -193,12 +200,19 @@ public class AmazonPriceProvider implements PriceProvider {
 
         try {
             log.info("Querying Real-Time Amazon Data API product details for ASIN: {} (country: {})", asin, targetCountry);
-            String url = String.format("https://%s/product-details?asin={asin}&country={country}", host);
 
             String response = restClient.get()
-                    .uri(url, asin, targetCountry)
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https")
+                            .host(host)
+                            .path("/product-details")
+                            .queryParam("asin", asin)
+                            .queryParam("country", targetCountry)
+                            .build())
                     .header("x-rapidapi-key", resolveApiKey())
                     .header("x-rapidapi-host", host)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
                     .retrieve()
                     .body(String.class);
 
@@ -266,7 +280,12 @@ public class AmazonPriceProvider implements PriceProvider {
             JsonNode root = objectMapper.readTree(jsonResponse);
             String status = root.path("status").asText("OK");
             if ("ERROR".equalsIgnoreCase(status)) {
-                log.warn("Real-Time Amazon Data API reported error: {}", root.path("message").asText(""));
+                String errorMsg = root.path("message").asText(null);
+                if (errorMsg == null || errorMsg.isEmpty()) {
+                    errorMsg = root.path("error").path("message").asText("Unknown API error");
+                }
+                log.warn("Real-Time Amazon Data API reported error: {}", errorMsg);
+                this.isUnavailable = true;
                 return Collections.emptyList();
             }
 

@@ -198,5 +198,21 @@ class AmazonPriceProviderTest {
         List<ProviderProductDTO> nullJson = configuredProvider.parseSearchResponse(null);
         assertNotNull(nullJson);
         assertTrue(nullJson.isEmpty());
+
+        // Test nested error payload from Real-Time Amazon Data API
+        String nestedErrorJson = """
+                {
+                    "status": "ERROR",
+                    "request_id": "err-req-456",
+                    "error": {
+                        "message": "You are not subscribed to this API.",
+                        "code": 403
+                    }
+                }
+                """;
+        List<ProviderProductDTO> nestedErrorList = configuredProvider.parseSearchResponse(nestedErrorJson);
+        assertNotNull(nestedErrorList);
+        assertTrue(nestedErrorList.isEmpty());
+        assertEquals("UNAVAILABLE", configuredProvider.getStoreStatus(), "Provider should report UNAVAILABLE when API reports error");
     }
 }

@@ -271,7 +271,7 @@ function ProductDetails() {
             <div className="catalog-disclaimer-banner">
               <FaInfoCircle className="disclaimer-icon" />
               <div className="disclaimer-text">
-                <strong>Internal Database Benchmark:</strong> The price shown below originates from the local reference catalog (SAMPLE DATA). Live Amazon PA-API and Flipkart Affiliate price tracking are currently unconfigured in the environment.
+                <strong>Internal Database Benchmark:</strong> The price shown below originates from the local reference catalog (SAMPLE DATA). Real-time price tracking is actively monitored across connected store providers.
               </div>
             </div>
           )}
