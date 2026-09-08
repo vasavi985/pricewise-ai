@@ -109,4 +109,41 @@ class ProductSearchServiceTest {
         assertTrue(result.getProviders().stream().anyMatch(p -> "AMAZON".equals(p.getStore()) && "UNAVAILABLE".equals(p.getStatus())));
         assertTrue(result.getProviders().stream().anyMatch(p -> "OPEN_COMMERCE".equals(p.getStore()) && "LIVE".equals(p.getStatus())));
     }
+
+    @Test
+    @DisplayName("When Open Commerce and Amazon both time out or return empty, Catalog benchmark results are preserved")
+    void testCatalogPreservedWhenOpenCommerceAndAmazonTimeOut() {
+        // Given: both external providers timed out and providerManager returns empty
+        when(providerManager.searchAll(eq("MacBook Air M2"))).thenReturn(Collections.emptyList());
+
+        Product catalogProduct = new Product();
+        catalogProduct.setId(1L);
+        catalogProduct.setCanonicalName("MacBook Air M2");
+        catalogProduct.setProductName("MacBook Air M2");
+
+        when(productRepository.searchProducts(eq("MacBook Air M2"))).thenReturn(List.of(catalogProduct));
+        when(productRepository.findAll()).thenReturn(List.of(catalogProduct));
+        when(productRepository.findById(1L)).thenReturn(Optional.of(catalogProduct));
+
+        PriceComparisonDTO catalogComparison = new PriceComparisonDTO();
+        catalogComparison.setProductId(1L);
+        catalogComparison.setProductName("MacBook Air M2");
+        catalogComparison.setLowestPrice(71499.0);
+        catalogComparison.setBestStore("CATALOG");
+
+        when(priceComparisonService.comparePrices(catalogProduct)).thenReturn(catalogComparison);
+        when(providerManager.getProviderStatuses()).thenReturn(List.of(
+                new ProviderStatusDTO("AMAZON", true, "UNAVAILABLE", "Amazon API", ""),
+                new ProviderStatusDTO("OPEN_COMMERCE", true, "LIVE", "Open Commerce API", ""),
+                new ProviderStatusDTO("CATALOG", true, "SAMPLE_DATA", "Catalog", "")
+        ));
+
+        ProductSearchResultDTO result = productSearchService.search("MacBook Air M2");
+
+        assertNotNull(result);
+        assertEquals(1, result.getTotalFound(), "Catalog product should still be found from database even if live providers time out");
+        assertEquals("MacBook Air M2", result.getResults().get(0).getProductName());
+        assertEquals("CATALOG", result.getResults().get(0).getBestStore());
+        assertEquals(71499.0, result.getResults().get(0).getLowestPrice());
+    }
 }
