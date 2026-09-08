@@ -1,20 +1,36 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import Historycard from "../components/Historycard";
 import trackingService from "../services/trackingService";
+import { useAuth } from "../context/AuthContext";
 import { FaBell, FaSearch, FaSpinner, FaCheckCircle } from "react-icons/fa";
 import "../styles/tracking.css";
 
 function Tracking() {
+  const { currentUser, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [trackedItems, setTrackedItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    loadTrackedItems();
-  }, []);
+    if (!authLoading && !currentUser) {
+      navigate("/login", {
+        replace: true,
+        state: { from: location, message: "Please log in to view and manage your tracked products." },
+      });
+    }
+  }, [currentUser, authLoading, navigate, location]);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadTrackedItems();
+    }
+  }, [currentUser]);
 
   const loadTrackedItems = async () => {
     setLoading(true);
@@ -49,6 +65,21 @@ function Tracking() {
       alert("Failed to check live price: " + err.message);
     }
   };
+
+  if (authLoading || (!currentUser && !loading)) {
+    return (
+      <div className="tracking-page">
+        <Navbar />
+        <main className="tracking-container">
+          <div className="tracking-loading">
+            <FaSpinner className="spin-ico" />
+            <p>Checking authentication...</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="tracking-page">

@@ -1,11 +1,9 @@
 import api from "./api";
 
 export const trackingService = {
-  // Get all active tracked products
-  getTrackedProducts: (userId = "local-user") => {
-    return api.get("/tracking", {
-      params: { userId },
-    });
+  // Get all active tracked products for authenticated user
+  getTrackedProducts: () => {
+    return api.get("/tracking");
   },
 
   // Start tracking a product listing

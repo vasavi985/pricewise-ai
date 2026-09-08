@@ -12,6 +12,10 @@ function Navbar() {
   const { currentUser, logout } = useAuth();
 
   useEffect(() => {
+    if (!currentUser) {
+      setTrackedCount(0);
+      return;
+    }
     trackingService.getTrackedProducts()
       .then((items) => {
         if (Array.isArray(items)) {
@@ -19,7 +23,7 @@ function Navbar() {
         }
       })
       .catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, currentUser]);
 
   return (
     <nav className="navbar">

@@ -1,5 +1,7 @@
 package com.pricewise.backend.service;
 
+import com.pricewise.backend.dto.TrackedProductDTO;
+import com.pricewise.backend.dto.TrackingRequestDTO;
 import com.pricewise.backend.entity.Product;
 import com.pricewise.backend.entity.StoreProduct;
 import com.pricewise.backend.entity.TrackedProduct;
@@ -10,7 +12,11 @@ import com.pricewise.backend.repository.TrackedProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -106,5 +112,89 @@ class PriceTrackingServiceTest {
         priceTrackingService.evaluatePriceChange(tp, 56000.0, 54999.0);
 
         verify(notificationService, never()).sendPriceDropAlert(any(), anyDouble(), anyDouble(), anyDouble(), anyDouble());
+    }
+
+    @Test
+    void testTrackProduct_UsesAuthenticatedUid() {
+        StoreProduct sp = new StoreProduct();
+        sp.setId(10L);
+        sp.setCurrentPrice(50000.0);
+        when(storeProductRepository.findById(10L)).thenReturn(Optional.of(sp));
+        when(trackedProductRepository.findByStoreProductIdAndUserIdAndActiveTrue(10L, "auth-user-999"))
+                .thenReturn(Optional.empty());
+
+        TrackedProduct saved = new TrackedProduct();
+        saved.setId(1L);
+        saved.setUserId("auth-user-999");
+        saved.setStoreProduct(sp);
+        when(trackedProductRepository.save(any(TrackedProduct.class))).thenReturn(saved);
+
+        TrackingRequestDTO req = new TrackingRequestDTO();
+        req.setStoreProductId(10L);
+        req.setUserId("spoofed-attacker-id"); // Client attempts to spoof another user ID
+
+        TrackedProductDTO dto = priceTrackingService.trackProduct(req, "auth-user-999");
+
+        assertNotNull(dto);
+        // Verify repository saved entity strictly with verified UID auth-user-999
+        verify(trackedProductRepository).save(argThat(tp -> "auth-user-999".equals(tp.getUserId())));
+    }
+
+    @Test
+    void testStopTracking_DifferentUser_ThrowsResponseStatusException() {
+        TrackedProduct tp = new TrackedProduct();
+        tp.setId(5L);
+        tp.setUserId("victim-user");
+        tp.setActive(true);
+
+        when(trackedProductRepository.findById(5L)).thenReturn(Optional.of(tp));
+
+        // Attacker attempts to stop tracking victim's item
+        assertThrows(ResponseStatusException.class, () -> {
+            priceTrackingService.stopTracking(5L, "attacker-user");
+        });
+
+        verify(trackedProductRepository, never()).save(any());
+    }
+
+    @Test
+    void testStopTracking_SameUser_Succeeds() {
+        TrackedProduct tp = new TrackedProduct();
+        tp.setId(5L);
+        tp.setUserId("legitimate-user");
+        tp.setActive(true);
+
+        when(trackedProductRepository.findById(5L)).thenReturn(Optional.of(tp));
+
+        priceTrackingService.stopTracking(5L, "legitimate-user");
+
+        assertFalse(tp.getActive());
+        verify(trackedProductRepository, times(1)).save(tp);
+    }
+
+    @Test
+    void testGetTrackedProduct_DifferentUser_ThrowsResponseStatusException() {
+        TrackedProduct tp = new TrackedProduct();
+        tp.setId(7L);
+        tp.setUserId("owner-user");
+
+        when(trackedProductRepository.findById(7L)).thenReturn(Optional.of(tp));
+
+        assertThrows(ResponseStatusException.class, () -> {
+            priceTrackingService.getTrackedProduct(7L, "intruder-user");
+        });
+    }
+
+    @Test
+    void testCheckPriceNow_DifferentUser_ThrowsResponseStatusException() {
+        TrackedProduct tp = new TrackedProduct();
+        tp.setId(8L);
+        tp.setUserId("owner-user");
+
+        when(trackedProductRepository.findById(8L)).thenReturn(Optional.of(tp));
+
+        assertThrows(ResponseStatusException.class, () -> {
+            priceTrackingService.checkPriceNow(8L, "intruder-user");
+        });
     }
 }

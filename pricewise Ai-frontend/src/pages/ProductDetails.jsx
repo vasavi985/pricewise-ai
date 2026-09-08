@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import {
   LineChart,
   Line,
@@ -16,6 +16,7 @@ import Storecard from "../components/Storecard";
 import Recommendationcard from "../components/Recommendationcard";
 import productService from "../services/productService";
 import trackingService from "../services/trackingService";
+import { useAuth } from "../context/AuthContext";
 import {
   FaArrowLeft,
   FaBell,
@@ -32,6 +33,9 @@ import "../styles/productdetails.css";
 
 function ProductDetails() {
   const { id } = useParams();
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [product, setProduct] = useState(null);
   const [history, setHistory] = useState(null);
@@ -78,6 +82,12 @@ function ProductDetails() {
   };
 
   const handleOpenTrackModal = (storePrice) => {
+    if (!currentUser) {
+      navigate("/login", {
+        state: { from: location, message: "Please log in to track prices and receive drop alerts." },
+      });
+      return;
+    }
     if (!storePrice || !storePrice.id) {
       alert("This store listing is not configured or unavailable for tracking.");
       return;
@@ -87,6 +97,9 @@ function ProductDetails() {
       // Suggest 5% drop
       const suggested = Math.round(storePrice.price * 0.95);
       setTargetPrice(suggested.toString());
+    }
+    if (currentUser.email && !userEmail) {
+      setUserEmail(currentUser.email);
     }
     setTrackSuccess(false);
     setIsModalOpen(true);

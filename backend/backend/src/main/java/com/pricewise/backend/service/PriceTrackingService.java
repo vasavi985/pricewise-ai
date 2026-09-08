@@ -10,10 +10,13 @@ import com.pricewise.backend.repository.StoreProductRepository;
 import com.pricewise.backend.repository.TrackedProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,13 +40,16 @@ public class PriceTrackingService {
         this.notificationService = notificationService;
     }
 
-    public TrackedProductDTO trackProduct(TrackingRequestDTO req) {
+    public TrackedProductDTO trackProduct(TrackingRequestDTO req, String userId) {
+        if (userId == null || userId.trim().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated user ID is required.");
+        }
+        String safeUid = userId.trim();
+
         StoreProduct sp = storeProductRepository.findById(req.getStoreProductId())
-                .orElseThrow(() -> new RuntimeException("Store product not found: " + req.getStoreProductId()));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Store product not found: " + req.getStoreProductId()));
 
-        String userId = (req.getUserId() != null && !req.getUserId().trim().isEmpty()) ? req.getUserId() : "local-user";
-
-        Optional<TrackedProduct> existing = trackedProductRepository.findByStoreProductIdAndUserIdAndActiveTrue(sp.getId(), userId);
+        Optional<TrackedProduct> existing = trackedProductRepository.findByStoreProductIdAndUserIdAndActiveTrue(sp.getId(), safeUid);
         TrackedProduct tracked;
 
         if (existing.isPresent()) {
@@ -55,7 +61,7 @@ public class PriceTrackingService {
             tracked = new TrackedProduct();
             tracked.setStoreProduct(sp);
             tracked.setStoreProductId(sp.getId());
-            tracked.setUserId(userId);
+            tracked.setUserId(safeUid);
             tracked.setUserEmail(req.getUserEmail());
             tracked.setInitialPrice(sp.getCurrentPrice());
             tracked.setTargetPrice(req.getTargetPrice() != null ? req.getTargetPrice() : (sp.getCurrentPrice() != null ? Math.round(sp.getCurrentPrice() * 0.95) : null));
@@ -65,13 +71,20 @@ public class PriceTrackingService {
 
         tracked = trackedProductRepository.save(tracked);
         String prodName = (sp.getProduct() != null) ? sp.getProduct().getCanonicalName() : sp.getTitle();
-        log.info("User [{}] started tracking [{}] at {} (Target: ₹{})", userId, prodName, sp.getStore(), tracked.getTargetPrice());
+        log.info("User [{}] started tracking [{}] at {} (Target: ₹{})", safeUid, prodName, sp.getStore(), tracked.getTargetPrice());
 
         return toDto(tracked);
     }
 
+    public TrackedProductDTO trackProduct(TrackingRequestDTO req) {
+        return trackProduct(req, req.getUserId() != null ? req.getUserId() : "local-user");
+    }
+
     public List<TrackedProductDTO> getTrackedProducts(String userId) {
-        String uid = (userId != null && !userId.trim().isEmpty()) ? userId : "local-user";
+        if (userId == null || userId.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        String uid = userId.trim();
         List<TrackedProduct> list = trackedProductRepository.findByUserIdAndActiveTrue(uid);
         List<TrackedProductDTO> dtos = new ArrayList<>();
         for (TrackedProduct tp : list) {
@@ -80,28 +93,50 @@ public class PriceTrackingService {
         return dtos;
     }
 
-    public TrackedProductDTO getTrackedProduct(Long id) {
+    public TrackedProductDTO getTrackedProduct(Long id, String userId) {
         TrackedProduct tp = trackedProductRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Tracked product not found: " + id));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tracked product not found: " + id));
+        if (userId != null && !userId.trim().equals(tp.getUserId())) {
+            log.warn("Access denied: User [{}] attempted to access tracked product [{}] belonging to [{}]", userId, id, tp.getUserId());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tracked product not found: " + id);
+        }
         return toDto(tp);
+    }
+
+    public TrackedProductDTO getTrackedProduct(Long id) {
+        return getTrackedProduct(id, null);
+    }
+
+    public void stopTracking(Long id, String userId) {
+        TrackedProduct tp = trackedProductRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tracked product not found: " + id));
+        if (userId != null && !userId.trim().equals(tp.getUserId())) {
+            log.warn("Access denied: User [{}] attempted to stop tracking item [{}] belonging to [{}]", userId, id, tp.getUserId());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tracked product not found: " + id);
+        }
+        tp.setActive(false);
+        trackedProductRepository.save(tp);
+        log.info("User [{}] stopped tracking item ID: {}", userId, id);
     }
 
     public void stopTracking(Long id) {
+        stopTracking(id, null);
+    }
+
+    public TrackedProductDTO checkPriceNow(Long id, String userId) {
         TrackedProduct tp = trackedProductRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Tracked product not found: " + id));
-        tp.setActive(false);
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tracked product not found: " + id));
+        if (userId != null && !userId.trim().equals(tp.getUserId())) {
+            log.warn("Access denied: User [{}] attempted to check price for item [{}] belonging to [{}]", userId, id, tp.getUserId());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tracked product not found: " + id);
+        }
+        tp.setLastCheckedAt(LocalDateTime.now());
         trackedProductRepository.save(tp);
-        log.info("Stopped tracking item ID: {}", id);
+        return toDto(tp);
     }
 
     public TrackedProductDTO checkPriceNow(Long id) {
-        TrackedProduct tp = trackedProductRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Tracked product not found: " + id));
-
-        tp.setLastCheckedAt(LocalDateTime.now());
-        trackedProductRepository.save(tp);
-
-        return toDto(tp);
+        return checkPriceNow(id, null);
     }
 
     public void evaluatePriceChange(TrackedProduct tp, double previousPrice, double newPrice) {
