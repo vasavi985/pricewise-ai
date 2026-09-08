@@ -23,6 +23,8 @@ public class FirestoreProductRepository implements ProductRepository {
     private final Firestore firestore;
     private final DistributedIdGenerator idGenerator;
     private final Map<Long, Product> inMemoryProducts = new ConcurrentHashMap<>();
+    private final Object cacheLock = new Object();
+    private volatile boolean cacheInitialized = false;
 
     @Autowired
     public FirestoreProductRepository(@Autowired(required = false) Firestore firestore,
@@ -35,41 +37,64 @@ public class FirestoreProductRepository implements ProductRepository {
         this(firestore, new DistributedIdGenerator());
     }
 
-    @Override
-    public List<Product> findAll() {
-        if (firestore == null) {
-            List<Product> list = new ArrayList<>(inMemoryProducts.values());
-            list.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
-            return list;
+    private void ensureCacheInitialized() {
+        if (firestore == null || cacheInitialized) {
+            return;
         }
 
-        try {
-            ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-            List<Product> products = new ArrayList<>();
-            for (DocumentSnapshot doc : docs) {
-                Product p = fromSnapshot(doc);
-                if (p != null && p.getId() != null) {
-                    products.add(p);
-                    inMemoryProducts.put(p.getId(), p);
+        synchronized (cacheLock) {
+            if (!cacheInitialized) {
+                log.info("Initializing in-memory product cache from Firestore...");
+                try {
+                    ApiFuture<QuerySnapshot> future = firestore.collection(COLLECTION_NAME).get();
+                    List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+                    for (DocumentSnapshot doc : docs) {
+                        Product p = fromSnapshot(doc);
+                        if (p != null && p.getId() != null) {
+                            inMemoryProducts.put(p.getId(), p);
+                        }
+                    }
+                    log.info("Loaded {} products from Firestore into in-memory cache.", inMemoryProducts.size());
+                } catch (Exception e) {
+                    log.error("Failed to initialize product cache from Firestore: {}", e.getMessage());
+                } finally {
+                    cacheInitialized = true;
                 }
             }
-            products.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
-            return products;
-        } catch (Exception e) {
-            log.error("Failed to fetch all products from Firestore: {}", e.getMessage());
-            List<Product> list = new ArrayList<>(inMemoryProducts.values());
-            list.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
-            return list;
         }
+    }
+
+    public boolean isCacheInitialized() {
+        return cacheInitialized;
+    }
+
+    public void resetCacheForTesting() {
+        synchronized (cacheLock) {
+            inMemoryProducts.clear();
+            cacheInitialized = false;
+        }
+    }
+
+    @Override
+    public List<Product> findAll() {
+        ensureCacheInitialized();
+        List<Product> list = new ArrayList<>(inMemoryProducts.values());
+        list.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
+        return list;
     }
 
     @Override
     public Optional<Product> findById(Long id) {
         if (id == null) return Optional.empty();
 
+        ensureCacheInitialized();
+        Product cached = inMemoryProducts.get(id);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+
         if (firestore == null) {
-            return Optional.ofNullable(inMemoryProducts.get(id));
+            return Optional.empty();
         }
 
         try {
@@ -85,10 +110,10 @@ public class FirestoreProductRepository implements ProductRepository {
                     return Optional.of(p);
                 }
             }
-            return Optional.ofNullable(inMemoryProducts.get(id));
+            return Optional.empty();
         } catch (Exception e) {
             log.error("Failed to find product by id [{}] in Firestore: {}", id, e.getMessage());
-            return Optional.ofNullable(inMemoryProducts.get(id));
+            return Optional.empty();
         }
     }
 
@@ -127,15 +152,15 @@ public class FirestoreProductRepository implements ProductRepository {
 
     @Override
     public List<Product> searchProducts(String query) {
+        ensureCacheInitialized();
         if (query == null || query.trim().isEmpty()) {
             return findAll();
         }
 
         String lower = query.trim().toLowerCase();
-        List<Product> all = findAll();
         List<Product> matches = new ArrayList<>();
 
-        for (Product p : all) {
+        for (Product p : inMemoryProducts.values()) {
             boolean matchName = p.getProductName() != null && p.getProductName().toLowerCase().contains(lower);
             boolean matchCanonical = p.getCanonicalName() != null && p.getCanonicalName().toLowerCase().contains(lower);
             boolean matchBrand = p.getBrand() != null && p.getBrand().toLowerCase().contains(lower);
@@ -144,6 +169,7 @@ public class FirestoreProductRepository implements ProductRepository {
                 matches.add(p);
             }
         }
+        matches.sort(Comparator.comparing(p -> p.getId() != null ? p.getId() : 0L));
 
         return matches;
     }
@@ -151,9 +177,10 @@ public class FirestoreProductRepository implements ProductRepository {
     @Override
     public Optional<Product> findByCanonicalNameIgnoreCase(String canonicalName) {
         if (canonicalName == null || canonicalName.trim().isEmpty()) return Optional.empty();
+        ensureCacheInitialized();
         String target = canonicalName.trim().toLowerCase();
 
-        for (Product p : findAll()) {
+        for (Product p : inMemoryProducts.values()) {
             if (p.getCanonicalName() != null && p.getCanonicalName().trim().equalsIgnoreCase(target)) {
                 return Optional.of(p);
             }
@@ -164,9 +191,10 @@ public class FirestoreProductRepository implements ProductRepository {
     @Override
     public Optional<Product> findByProductNameIgnoreCase(String productName) {
         if (productName == null || productName.trim().isEmpty()) return Optional.empty();
+        ensureCacheInitialized();
         String target = productName.trim().toLowerCase();
 
-        for (Product p : findAll()) {
+        for (Product p : inMemoryProducts.values()) {
             if (p.getProductName() != null && p.getProductName().trim().equalsIgnoreCase(target)) {
                 return Optional.of(p);
             }
@@ -176,14 +204,8 @@ public class FirestoreProductRepository implements ProductRepository {
 
     @Override
     public long count() {
-        if (firestore == null) {
-            return inMemoryProducts.size();
-        }
-        try {
-            return firestore.collection(COLLECTION_NAME).get().get().size();
-        } catch (Exception e) {
-            return inMemoryProducts.size();
-        }
+        ensureCacheInitialized();
+        return inMemoryProducts.size();
     }
 
     @Override

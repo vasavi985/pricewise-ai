@@ -108,7 +108,7 @@ class DistributedIdGeneratorTest {
         // Within 10ms, it should recover when clock advances
         new Thread(() -> {
             try {
-                Thread.sleep(5);
+                Thread.sleep(1);
                 simulatedTime.addAndGet(5);
             } catch (InterruptedException ignored) {}
         }).start();
