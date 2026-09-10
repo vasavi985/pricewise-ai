@@ -120,12 +120,16 @@ public class PriceComparisonService {
         // If product has Amazon but lacks Flipkart, attempt live on-demand query if Flipkart is configured
         if (!hasFlipkart && flp != null && flp.isConfigured() && product.getId() != null) {
             try {
-                String searchTarget = product.getCanonicalName() != null ? product.getCanonicalName() : product.getProductName();
+                String searchTarget = cleanSearchTarget(product);
                 if (searchTarget != null && !searchTarget.trim().isEmpty()) {
                     List<com.pricewise.backend.dto.ProviderProductDTO> items = flp.searchProducts(searchTarget);
                     if (items != null && !items.isEmpty()) {
-                        com.pricewise.backend.dto.ProviderProductDTO item = items.get(0);
-                        if (item != null && item.getPrice() != null && item.getPrice() > 0) {
+                        com.pricewise.backend.dto.ProviderProductDTO item = items.stream()
+                                .filter(candidate -> isCompatibleItem(product, candidate) && candidate.getPrice() != null && candidate.getPrice() > 0)
+                                .findFirst()
+                                .orElse(null);
+
+                        if (item != null) {
                             StoreProduct sp = new StoreProduct(
                                     product,
                                     "FLIPKART",
@@ -181,12 +185,16 @@ public class PriceComparisonService {
         // If product has Flipkart but lacks Amazon, attempt live on-demand query if Amazon is configured
         if (!hasAmazon && amz != null && amz.isConfigured() && product.getId() != null) {
             try {
-                String searchTarget = product.getCanonicalName() != null ? product.getCanonicalName() : product.getProductName();
+                String searchTarget = cleanSearchTarget(product);
                 if (searchTarget != null && !searchTarget.trim().isEmpty()) {
                     List<com.pricewise.backend.dto.ProviderProductDTO> items = amz.searchProducts(searchTarget);
                     if (items != null && !items.isEmpty()) {
-                        com.pricewise.backend.dto.ProviderProductDTO item = items.get(0);
-                        if (item != null && item.getPrice() != null && item.getPrice() > 0) {
+                        com.pricewise.backend.dto.ProviderProductDTO item = items.stream()
+                                .filter(candidate -> isCompatibleItem(product, candidate) && candidate.getPrice() != null && candidate.getPrice() > 0)
+                                .findFirst()
+                                .orElse(null);
+
+                        if (item != null) {
                             StoreProduct sp = new StoreProduct(
                                     product,
                                     "AMAZON",
@@ -356,5 +364,48 @@ public class PriceComparisonService {
             ));
             dto.setRecommendation("GOOD PRICE");
         }
+    }
+
+    private static final java.util.Set<String> MODEL_VARIANTS = java.util.Set.of("pro", "plus", "ultra", "mini", "max", "air", "fe", "lite", "neo");
+
+    public static String cleanSearchTarget(Product product) {
+        if (product == null) return "";
+        String canonical = product.getCanonicalName() != null ? product.getCanonicalName() : product.getProductName();
+        if (canonical == null || canonical.trim().isEmpty()) return "";
+
+        String s = canonical.trim();
+        int paren = s.indexOf('(');
+        if (paren > 0) s = s.substring(0, paren);
+        int bracket = s.indexOf('[');
+        if (bracket > 0) s = s.substring(0, bracket);
+        int pipe = s.indexOf('|');
+        if (pipe > 0) s = s.substring(0, pipe);
+        int dash = s.indexOf(" - ");
+        if (dash > 0) s = s.substring(0, dash);
+
+        s = s.replaceAll("(?i)\\b(5g|4g|lte|smartphone|phone|mobile|storage|ram|rom)\\b", "").trim().replaceAll("\\s+", " ");
+
+        if (product.getBrand() != null && !product.getBrand().trim().isEmpty()) {
+            String b = product.getBrand().trim();
+            if (!s.toLowerCase().contains(b.toLowerCase())) {
+                s = b + " " + s;
+            }
+        }
+        return s.trim();
+    }
+
+    private boolean isCompatibleItem(Product product, com.pricewise.backend.dto.ProviderProductDTO item) {
+        if (product == null || item == null || item.getTitle() == null) return false;
+        String pTitle = (product.getCanonicalName() != null ? product.getCanonicalName() : product.getProductName()).toLowerCase();
+        String iTitle = item.getTitle().toLowerCase();
+
+        for (String v : MODEL_VARIANTS) {
+            boolean pHas = pTitle.contains(" " + v) || pTitle.contains("-" + v) || pTitle.endsWith(" " + v);
+            boolean iHas = iTitle.contains(" " + v) || iTitle.contains("-" + v) || iTitle.endsWith(" " + v);
+            if (pHas != iHas) {
+                return false;
+            }
+        }
+        return true;
     }
 }

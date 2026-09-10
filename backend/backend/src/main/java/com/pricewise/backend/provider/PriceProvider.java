@@ -18,4 +18,8 @@ public interface PriceProvider {
     List<ProviderProductDTO> searchProducts(String query);
 
     ProviderProductDTO fetchCurrentPrice(String storeProductId, String productUrl);
+    
+    default String getLastError() {
+        return null;
+    }
 }

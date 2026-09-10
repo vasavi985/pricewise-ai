@@ -6,16 +6,22 @@ public class ProviderStatusDTO {
     private String status; // LIVE, SAMPLE_DATA, CONFIG_REQUIRED, UNAVAILABLE
     private String description;
     private String requiredConfig;
+    private String error;
 
     public ProviderStatusDTO() {
     }
 
     public ProviderStatusDTO(String store, boolean configured, String status, String description, String requiredConfig) {
+        this(store, configured, status, description, requiredConfig, null);
+    }
+
+    public ProviderStatusDTO(String store, boolean configured, String status, String description, String requiredConfig, String error) {
         this.store = store;
         this.configured = configured;
         this.status = status;
         this.description = description;
         this.requiredConfig = requiredConfig;
+        this.error = error;
     }
 
     public String getStore() {
@@ -56,5 +62,13 @@ public class ProviderStatusDTO {
 
     public void setRequiredConfig(String requiredConfig) {
         this.requiredConfig = requiredConfig;
+    }
+
+    public String getError() {
+        return error;
+    }
+
+    public void setError(String error) {
+        this.error = error;
     }
 }

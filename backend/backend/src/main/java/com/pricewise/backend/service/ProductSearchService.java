@@ -218,11 +218,29 @@ public class ProductSearchService {
     }
 
     private static final Set<String> STOP_WORDS = Set.of(
-            "5g", "4g", "lte", "smartphone", "phone", "mobile", "ram", "rom", "storage",
+            "5g", "4g", "3g", "lte", "smartphone", "phone", "mobile", "ram", "rom", "storage",
             "black", "white", "blue", "green", "gold", "silver", "gray", "grey", "titanium",
-            "with", "and", "for", "the", "edition", "series", "gb", "tb", "inch", "in"
+            "purple", "violet", "yellow", "amber", "red", "orange", "pink", "onyx", "marble", "jetblack", "midnight",
+            "with", "and", "for", "the", "edition", "series", "gb", "tb", "inch", "in",
+            "ai", "camera", "display", "battery", "processor", "snapdragon", "bionic", "fast", "charging", "charger",
+            "unlocked", "dual", "sim", "cellular", "wifi", "wi", "fi", "official", "global", "version", "new", "latest",
+            "original", "genuine", "certified", "refurbished", "renewed", "creative", "studio", "assist", "provisual", "engine", "built"
     );
     private static final Set<String> MODEL_VARIANTS = Set.of("pro", "plus", "ultra", "mini", "max", "air", "fe", "lite", "neo");
+
+    public static String cleanProductTitle(String title) {
+        if (title == null || title.trim().isEmpty()) return "";
+        String s = title.trim();
+        int paren = s.indexOf('(');
+        if (paren > 0) s = s.substring(0, paren);
+        int bracket = s.indexOf('[');
+        if (bracket > 0) s = s.substring(0, bracket);
+        int pipe = s.indexOf('|');
+        if (pipe > 0) s = s.substring(0, pipe);
+        int hyphen = s.indexOf(" - ");
+        if (hyphen > 0) s = s.substring(0, hyphen);
+        return s.trim().replaceAll("(?i)\\b(5g|4g|lte|smartphone|mobile|phone)\\b", "").trim().replaceAll("\\s+", " ");
+    }
 
     private Set<String> extractProductTokens(String title) {
         if (title == null || title.trim().isEmpty()) return Collections.emptySet();
@@ -256,7 +274,15 @@ public class ProductSearchService {
             }
         }
 
-        return (smaller.size() >= 2 && matchCount == smaller.size()) || (matchCount >= 3 && matchCount >= (smaller.size() * 0.75));
+        // Exact subset match (e.g. [samsung, galaxy, s24] in [samsung, galaxy, s24, onyx, 256])
+        if (smaller.size() >= 2 && matchCount >= smaller.size()) {
+            return true;
+        }
+        // At least 3 shared identity tokens, or 2 if that's majority of small set
+        if (matchCount >= 3 || (smaller.size() == 2 && matchCount == 2)) {
+            return true;
+        }
+        return matchCount >= (smaller.size() * 0.6);
     }
 
     private Product findOrCreateProduct(ProviderProductDTO item) {
@@ -303,7 +329,8 @@ public class ProductSearchService {
         }
 
         Product newProduct = new Product();
-        newProduct.setCanonicalName(canonical);
+        String cleanCanonical = cleanProductTitle(canonical);
+        newProduct.setCanonicalName(!cleanCanonical.isEmpty() ? cleanCanonical : canonical);
         newProduct.setProductName(canonical);
         newProduct.setBrand(item.getBrand());
         newProduct.setModel(item.getModel());

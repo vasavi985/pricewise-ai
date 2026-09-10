@@ -177,4 +177,62 @@ class ProductSearchServiceTest {
         assertEquals(0, result.getTotalFound());
         assertTrue(result.getResults().isEmpty());
     }
+
+    @Test
+    @DisplayName("Verbose Amazon title and concise Flipkart title match to the same canonical Product")
+    void testAmazonAndFlipkartMatchToSameProduct() {
+        ProviderProductDTO amz = new ProviderProductDTO(
+                "AMAZON", "B0D2R26HFV",
+                "Samsung Galaxy S24 5G AI Smartphone (Onyx Black, 8GB, 256GB Storage)",
+                "Samsung Galaxy S24 5G AI Smartphone (Onyx Black, 8GB, 256GB Storage)",
+                "Samsung", "S24", "Electronics", "Listing", "img1.jpg", "http://amz/s24",
+                39999.0, "INR", "IN_STOCK", "LIVE", 4.6
+        );
+
+        ProviderProductDTO flp = new ProviderProductDTO(
+                "FLIPKART", "MOBGTAGPAGGMGFAM",
+                "SAMSUNG Galaxy S24 (Amber Yellow, 128 GB)",
+                "SAMSUNG Galaxy S24 (Amber Yellow, 128 GB)",
+                "Samsung", "S24", "Electronics", "Listing", "img2.jpg", "http://flp/s24",
+                38999.0, "INR", "IN_STOCK", "LIVE", 4.5
+        );
+
+        when(providerManager.searchAll(eq("Samsung Galaxy S24"))).thenReturn(List.of(amz, flp));
+
+        Product unified = new Product();
+        unified.setId(500L);
+        unified.setCanonicalName("Samsung Galaxy S24");
+        unified.setProductName("Samsung Galaxy S24");
+
+        // When finding existing products
+        when(productRepository.findByCanonicalNameIgnoreCase(any())).thenReturn(Optional.empty());
+        when(productRepository.findByProductNameIgnoreCase(any())).thenReturn(Optional.empty());
+        // First call saves Amazon as new product, returns unified
+        when(productRepository.save(any(Product.class))).thenReturn(unified);
+        // Second call (Flipkart) calls findAll() to match existing
+        when(productRepository.findAll()).thenReturn(List.of(unified));
+        when(productRepository.findById(500L)).thenReturn(Optional.of(unified));
+
+        when(storeProductRepository.findByProductIdAndStore(eq(500L), any())).thenReturn(Optional.empty());
+        when(storeProductRepository.save(any(StoreProduct.class))).thenAnswer(i -> i.getArgument(0));
+
+        PriceComparisonDTO comp = new PriceComparisonDTO();
+        comp.setProductId(500L);
+        comp.setProductName("Samsung Galaxy S24");
+        comp.setLowestPrice(38999.0);
+        comp.setBestStore("FLIPKART");
+        when(priceComparisonService.comparePrices(unified)).thenReturn(comp);
+
+        when(providerManager.getProviderStatuses()).thenReturn(List.of(
+                new ProviderStatusDTO("AMAZON", true, "LIVE", "", ""),
+                new ProviderStatusDTO("FLIPKART", true, "LIVE", "", "")
+        ));
+
+        ProductSearchResultDTO result = productSearchService.search("Samsung Galaxy S24");
+
+        assertNotNull(result);
+        assertEquals(1, result.getTotalFound(), "Both stores should unify into 1 matched product comparison");
+        assertEquals(38999.0, result.getResults().get(0).getLowestPrice());
+        assertEquals("FLIPKART", result.getResults().get(0).getBestStore());
+    }
 }

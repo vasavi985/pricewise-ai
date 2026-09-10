@@ -27,7 +27,7 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     private static final Logger log = LoggerFactory.getLogger(FlipkartPriceProvider.class);
     private static final String DEFAULT_RAPIDAPI_HOST = "real-time-flipkart-data2.p.rapidapi.com";
     private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache to avoid excessive API calls
-    private static final int HARD_TIMEOUT_SECONDS = 6; // Strict 6-second hard deadline
+    private static final int HARD_TIMEOUT_SECONDS = 8; // 8-second deadline to accommodate scraper latency
 
     @Value("${pricewise.providers.flipkart.api-key:}")
     private String flipkartApiKey;
@@ -38,7 +38,7 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     @Value("${pricewise.providers.flipkart.search-path:/search}")
     private String searchPath = "/search";
 
-    @Value("${pricewise.providers.flipkart.timeout-seconds:6}")
+    @Value("${pricewise.providers.flipkart.timeout-seconds:8}")
     private int timeoutSeconds = HARD_TIMEOUT_SECONDS;
 
     private final ObjectMapper objectMapper;
@@ -46,6 +46,10 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     private final ExecutorService executorService;
 
     private volatile boolean isUnavailable = false;
+    private volatile long lastFailureTime = 0;
+    private static final long UNAVAILABLE_COOLDOWN_MS = 60 * 1000; // 1-minute auto-recovery window
+    private volatile String lastError = null;
+
     private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
 
     private static class CacheEntry {
@@ -127,10 +131,18 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         if (!isConfigured()) {
             return "CONFIG_REQUIRED";
         }
-        if (isUnavailable) {
+        if (isUnavailable && (System.currentTimeMillis() - lastFailureTime < UNAVAILABLE_COOLDOWN_MS)) {
             return "UNAVAILABLE";
         }
+        if (isUnavailable && (System.currentTimeMillis() - lastFailureTime >= UNAVAILABLE_COOLDOWN_MS)) {
+            isUnavailable = false; // Auto-recover to allow next query
+        }
         return "LIVE";
+    }
+
+    @Override
+    public String getLastError() {
+        return lastError;
     }
 
     @Override
@@ -166,10 +178,9 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         }
 
         CompletableFuture<List<ProviderProductDTO>> future = CompletableFuture.supplyAsync(() -> {
+            final String currentPath = searchPath != null && !searchPath.trim().isEmpty() ? searchPath.trim() : "/search";
             try {
                 log.info("Querying Real-Time Flipkart Data API on [{}] for query: '{}'", host, safeQuery);
-
-                String currentPath = searchPath != null && !searchPath.trim().isEmpty() ? searchPath.trim() : "/search";
                 String response = executeSearchRequest(host, currentPath, safeQuery);
 
                 if (response == null || response.trim().isEmpty()) {
@@ -179,6 +190,7 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
 
                 List<ProviderProductDTO> results = parseSearchResponse(response);
                 this.isUnavailable = false;
+                this.lastError = null;
 
                 // Cache up to 100 queries
                 if (searchCache.size() > 100) {
@@ -186,35 +198,51 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                 }
                 searchCache.put(cacheKey, new CacheEntry(results));
 
-                log.info("Successfully fetched {} Flipkart products for query: '{}'", results.size(), safeQuery);
+                log.info("Flipkart search query = '{}' | HTTP status = 200 | Mapped PriceWise results = {}", safeQuery, results.size());
                 return results;
 
             } catch (RestClientResponseException e) {
-                log.error("Real-Time Flipkart Data API returned HTTP error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
-                // If primary search endpoint was 404, attempt fallback to /search-products
-                if (e.getStatusCode().value() == 404 && !"/search-products".equalsIgnoreCase(searchPath)) {
-                    try {
-                        log.info("Attempting fallback search endpoint /search-products for query: '{}'", safeQuery);
-                        String fallbackResponse = executeSearchRequest(host, "/search-products", safeQuery);
-                        if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
-                            List<ProviderProductDTO> results = parseSearchResponse(fallbackResponse);
-                            this.isUnavailable = false;
-                            searchCache.put(cacheKey, new CacheEntry(results));
-                            return results;
+                String safeSummary = safeErrorSummary(e.getResponseBodyAsString());
+                log.error("Real-Time Flipkart Data API returned HTTP error: status={}, body={}", e.getStatusCode(), safeSummary);
+                this.isUnavailable = true;
+                this.lastFailureTime = System.currentTimeMillis();
+                this.lastError = "HTTP " + e.getStatusCode().value() + " (" + host + "): " + safeSummary;
+
+                // If primary search endpoint was 404, attempt fallback to /search-products or /products
+                if (e.getStatusCode().value() == 404) {
+                    String[] fallbacks = new String[]{"/search-products", "/products", "/v1/search"};
+                    for (String fbPath : fallbacks) {
+                        if (!fbPath.equalsIgnoreCase(currentPath)) {
+                            try {
+                                log.info("Attempting fallback search endpoint {} for query: '{}'", fbPath, safeQuery);
+                                String fallbackResponse = executeSearchRequest(host, fbPath, safeQuery);
+                                if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
+                                    List<ProviderProductDTO> results = parseSearchResponse(fallbackResponse);
+                                    if (!results.isEmpty()) {
+                                        this.isUnavailable = false;
+                                        this.lastError = null;
+                                        searchCache.put(cacheKey, new CacheEntry(results));
+                                        return results;
+                                    }
+                                }
+                            } catch (Exception fallbackEx) {
+                                log.debug("Fallback {} endpoint failed: {}", fbPath, fallbackEx.getMessage());
+                            }
                         }
-                    } catch (Exception fallbackEx) {
-                        log.error("Fallback /search-products endpoint also failed: {}", fallbackEx.getMessage());
                     }
                 }
-                this.isUnavailable = true;
                 return Collections.<ProviderProductDTO>emptyList();
             } catch (ResourceAccessException e) {
                 log.error("Real-Time Flipkart Data API connection/timeout error: {}", e.getMessage());
                 this.isUnavailable = true;
+                this.lastFailureTime = System.currentTimeMillis();
+                this.lastError = "Connection error (" + host + "): " + e.getMessage();
                 return Collections.<ProviderProductDTO>emptyList();
             } catch (Exception e) {
                 log.error("Unexpected error querying Real-Time Flipkart Data API: {}", e.getMessage());
                 this.isUnavailable = true;
+                this.lastFailureTime = System.currentTimeMillis();
+                this.lastError = "Provider error (" + host + "): " + e.getMessage();
                 return Collections.<ProviderProductDTO>emptyList();
             }
         }, executorService);
@@ -223,18 +251,24 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             future.cancel(true);
-            log.warn("Flipkart RapidAPI query for '{}' exceeded hard timeout of {}s. Returning empty result and marking Flipkart unavailable.", safeQuery, timeoutSeconds);
+            log.warn("Flipkart RapidAPI query for '{}' exceeded hard timeout of {}s.", safeQuery, timeoutSeconds);
             this.isUnavailable = true;
+            this.lastFailureTime = System.currentTimeMillis();
+            this.lastError = "Query exceeded timeout of " + timeoutSeconds + "s";
             return Collections.emptyList();
         } catch (InterruptedException e) {
             future.cancel(true);
             Thread.currentThread().interrupt();
             log.warn("Flipkart RapidAPI query for '{}' was interrupted.", safeQuery);
             this.isUnavailable = true;
+            this.lastFailureTime = System.currentTimeMillis();
+            this.lastError = "Query was interrupted";
             return Collections.emptyList();
         } catch (ExecutionException e) {
             log.error("Execution exception during Flipkart RapidAPI query for '{}': {}", safeQuery, e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
             this.isUnavailable = true;
+            this.lastFailureTime = System.currentTimeMillis();
+            this.lastError = "Execution exception: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -246,6 +280,7 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                         .host(host)
                         .path(path)
                         .queryParam("query", safeQuery)
+                        .queryParam("q", safeQuery)
                         .queryParam("page", "1")
                         .build())
                 .header("x-rapidapi-key", resolveApiKey())
@@ -392,12 +427,24 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                 productsNode = root.path("data").path("products");
             } else if (root.path("products").isArray()) {
                 productsNode = root.path("products");
+            } else if (root.path("data").path("items").isArray()) {
+                productsNode = root.path("data").path("items");
+            } else if (root.path("items").isArray()) {
+                productsNode = root.path("items");
+            } else if (root.path("data").path("search_results").isArray()) {
+                productsNode = root.path("data").path("search_results");
+            } else if (root.path("search_results").isArray()) {
+                productsNode = root.path("search_results");
             } else if (root.path("data").isArray()) {
                 productsNode = root.path("data");
             } else if (root.path("result").isArray()) {
                 productsNode = root.path("result");
             } else if (root.path("results").isArray()) {
                 productsNode = root.path("results");
+            } else if (root.path("response").path("products").isArray()) {
+                productsNode = root.path("response").path("products");
+            } else if (root.path("response").path("data").isArray()) {
+                productsNode = root.path("response").path("data");
             }
 
             if (productsNode == null || productsNode.isEmpty()) {
@@ -406,36 +453,30 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
 
             List<ProviderProductDTO> list = new ArrayList<>();
             for (JsonNode item : productsNode) {
-                String title = extractField(item, "product_title", "title", "name", "product_name");
+                String title = extractField(item, "product_title", "title", "name", "product_name", "productTitle", "productName", "item_title", "item_name");
                 if (title == null || title.trim().isEmpty()) {
                     continue;
                 }
 
-                String rawId = extractField(item, "product_id", "pid", "id", "fsn");
-                String productUrl = extractField(item, "product_url", "url", "link", "product_link");
+                String rawId = extractField(item, "product_id", "pid", "id", "fsn", "productId", "listing_id", "itemId");
+                String productUrl = extractField(item, "product_url", "url", "link", "product_link", "productUrl", "web_url");
                 if (productUrl == null || productUrl.trim().isEmpty()) {
                     if (rawId != null && !rawId.trim().isEmpty()) {
                         productUrl = "https://www.flipkart.com/item/p/itm?pid=" + rawId.trim();
                     }
                 }
 
-                String photoUrl = extractField(item, "product_photo", "product_image", "thumbnail", "image");
+                String photoUrl = extractField(item, "product_photo", "product_image", "thumbnail", "image", "img", "productPhoto", "productImage", "imageUrl");
                 if (photoUrl == null || photoUrl.trim().isEmpty()) {
                     JsonNode photosNode = item.path("product_photos");
                     if (photosNode.isArray() && !photosNode.isEmpty()) {
                         photoUrl = photosNode.get(0).asText(null);
+                    } else if (item.path("images").isArray() && !item.path("images").isEmpty()) {
+                        photoUrl = item.path("images").get(0).asText(null);
                     }
                 }
 
-                String priceStr = extractField(item, "product_price", "price", "current_price", "special_price", "product_minimum_offer_price");
-                Double price = parsePrice(priceStr);
-                if (price == null || price <= 0) {
-                    if (item.path("price").isNumber()) {
-                        price = item.path("price").asDouble();
-                    } else if (item.path("special_price").isNumber()) {
-                        price = item.path("special_price").asDouble();
-                    }
-                }
+                Double price = extractPriceValue(item);
                 if (price == null || price <= 0) {
                     continue; // Preserve real prices only - never fabricate or return non-priced items
                 }
@@ -476,6 +517,49 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             log.error("Failed to parse Real-Time Flipkart Data API search response: {}", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public static Double extractPriceValue(JsonNode item) {
+        if (item == null) return null;
+
+        String[] priceFields = new String[]{
+                "product_price", "price", "current_price", "special_price",
+                "product_minimum_offer_price", "selling_price", "sellingPrice",
+                "discounted_price", "discountedPrice", "final_price", "offer_price",
+                "mrp", "amount", "value", "val", "cost"
+        };
+        for (String field : priceFields) {
+            JsonNode fn = item.path(field);
+            if (!fn.isMissingNode() && !fn.isNull()) {
+                if (fn.isNumber()) {
+                    double val = fn.asDouble();
+                    if (val > 0) return Math.round(val * 100.0) / 100.0;
+                } else if (fn.isTextual()) {
+                    Double parsed = parsePrice(fn.asText());
+                    if (parsed != null && parsed > 0) return parsed;
+                }
+            }
+        }
+
+        JsonNode priceObj = item.path("price");
+        if (priceObj.isObject()) {
+            Double nested = extractPriceValue(priceObj);
+            if (nested != null && nested > 0) return nested;
+        }
+        JsonNode pricingObj = item.path("pricing");
+        if (pricingObj.isObject()) {
+            Double nested = extractPriceValue(pricingObj);
+            if (nested != null && nested > 0) return nested;
+        }
+
+        return null;
+    }
+
+    private static String safeErrorSummary(String body) {
+        if (body == null || body.trim().isEmpty()) return "empty body";
+        String clean = body.replaceAll("(?i)key=[^&\\s]+", "key=REDACTED")
+                .replaceAll("(?i)\"([^\"]*key[^\"]*)\"\\s*:\\s*\"[^\"]+\"", "\"$1\":\"REDACTED\"");
+        return clean.length() > 200 ? clean.substring(0, 200) + "..." : clean;
     }
 
     private static String extractField(JsonNode node, String... fieldNames) {
@@ -608,10 +692,6 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         }
         if (flipkartApiKey != null && !flipkartApiKey.trim().isEmpty()) {
             return flipkartApiKey.trim();
-        }
-        String rapidKey = System.getenv("RAPIDAPI_KEY");
-        if (rapidKey != null && !rapidKey.trim().isEmpty()) {
-            return rapidKey.trim();
         }
         return null;
     }

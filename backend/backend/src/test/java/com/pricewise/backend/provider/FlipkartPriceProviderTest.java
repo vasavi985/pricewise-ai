@@ -84,7 +84,7 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("3. Correct authentication headers (x-rapidapi-key, x-rapidapi-host) are sent in API requests")
     void test3_CorrectAuthenticationHeaders() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=iPhone%2015&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=iPhone%2015&q=iPhone%2015&page=1"))
                 .andExpect(method(HttpMethod.GET))
                 .andExpect(header("x-rapidapi-key", "test-flipkart-rapidapi-key"))
                 .andExpect(header("x-rapidapi-host", "real-time-flipkart-data2.p.rapidapi.com"))
@@ -133,7 +133,7 @@ class FlipkartPriceProviderTest {
                 }
                 """;
 
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=iPhone%2015&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=iPhone%2015&q=iPhone%2015&page=1"))
                 .andRespond(withSuccess(mockJson, MediaType.APPLICATION_JSON));
 
         List<ProviderProductDTO> results = configuredProvider.searchProducts("iPhone 15");
@@ -235,13 +235,15 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("13. API failure / HTTP 500 error marks provider unavailable and returns empty list safely")
     void test13_ApiFailure() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=error-item&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=error-item&q=error-item&page=1"))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("{\"message\":\"Internal Server Error\"}"));
 
         List<ProviderProductDTO> res = configuredProvider.searchProducts("error-item");
         assertNotNull(res);
         assertTrue(res.isEmpty());
         assertEquals("UNAVAILABLE", configuredProvider.getStoreStatus());
+        assertNotNull(configuredProvider.getLastError());
+        assertTrue(configuredProvider.getLastError().contains("500"));
     }
 
     @Test
@@ -258,7 +260,7 @@ class FlipkartPriceProviderTest {
         );
 
         // Don't register response on mockServer or delay response
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=timeout-test&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=timeout-test&q=timeout-test&page=1"))
                 .andRespond(request -> {
                     try {
                         Thread.sleep(1500); // Exceeds 1s timeout
@@ -278,7 +280,7 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("15. Provider failure isolation: Exception in Flipkart never throws out to caller")
     void test15_FailureIsolation() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=fail&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=fail&q=fail&page=1"))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
         assertDoesNotThrow(() -> {
@@ -293,5 +295,55 @@ class FlipkartPriceProviderTest {
     void test16_StoreNameIsFlipkart() {
         assertEquals("FLIPKART", configuredProvider.getStoreName());
         assertEquals("FLIPKART", unconfiguredProvider.getStoreName());
+    }
+
+    @Test
+    @DisplayName("17. Parse nested price objects and selling_price numbers")
+    void test17_NestedPriceAndSellingPrice() {
+        String json1 = """
+                {
+                  "items": [
+                    {
+                      "title": "Samsung Galaxy S24",
+                      "selling_price": 62999,
+                      "product_id": "FSN123"
+                    }
+                  ]
+                }
+                """;
+        List<ProviderProductDTO> r1 = configuredProvider.parseSearchResponse(json1);
+        assertEquals(1, r1.size());
+        assertEquals(62999.0, r1.get(0).getPrice());
+
+        String json2 = """
+                {
+                  "data": {
+                    "search_results": [
+                      {
+                        "productTitle": "OnePlus 12",
+                        "price": { "value": 54999.0 },
+                        "productId": "OP12"
+                      }
+                    ]
+                  }
+                }
+                """;
+        List<ProviderProductDTO> r2 = configuredProvider.parseSearchResponse(json2);
+        assertEquals(1, r2.size());
+        assertEquals(54999.0, r2.get(0).getPrice());
+    }
+
+    @Test
+    @DisplayName("18. Diagnostic getLastError is updated and safe without exposing credentials")
+    void test18_DiagnosticLastError() {
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=diag-test&q=diag-test&page=1"))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("{\"message\":\"Invalid key=SECRET123\"}"));
+
+        configuredProvider.searchProducts("diag-test");
+        String err = configuredProvider.getLastError();
+        assertNotNull(err);
+        assertTrue(err.contains("401"));
+        assertFalse(err.contains("SECRET123"));
+        assertTrue(err.contains("REDACTED"));
     }
 }

@@ -16,7 +16,7 @@ import java.util.concurrent.*;
 public class ProviderManager implements DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(ProviderManager.class);
-    private static final int DEFAULT_SEARCH_TIMEOUT_SECONDS = 7;
+    private static final int DEFAULT_SEARCH_TIMEOUT_SECONDS = 9;
     private static final java.util.Set<String> UNSUPPORTED_STORES = java.util.Set.of("CATALOG", "CROMA", "OPEN_COMMERCE");
 
     private final List<PriceProvider> providers;
@@ -67,7 +67,8 @@ public class ProviderManager implements DisposableBean {
                     p.isConfigured(),
                     p.getStoreStatus(),
                     p.getDescription(),
-                    p.getRequiredConfig()
+                    p.getRequiredConfig(),
+                    p.getLastError()
             ));
         }
         return statuses;
