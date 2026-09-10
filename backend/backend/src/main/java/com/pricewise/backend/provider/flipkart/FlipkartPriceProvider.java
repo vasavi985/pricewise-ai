@@ -35,8 +35,8 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     @Value("${pricewise.providers.flipkart.host:real-time-flipkart-data2.p.rapidapi.com}")
     private String flipkartApiHost;
 
-    @Value("${pricewise.providers.flipkart.search-path:/search}")
-    private String searchPath = "/search";
+    @Value("${pricewise.providers.flipkart.search-path:/search-products}")
+    private String searchPath = "/search-products";
 
     @Value("${pricewise.providers.flipkart.timeout-seconds:8}")
     private int timeoutSeconds = HARD_TIMEOUT_SECONDS;
@@ -52,11 +52,13 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     private volatile String discoveredSearchPath = null;
 
     public static final List<String> CANDIDATE_SEARCH_PATHS = List.of(
+            "/search-products",
+            "/search_products",
+            "/searchproducts",
             "/search",
             "/products",
             "/product-search",
             "/products/search",
-            "/search-products",
             "/search-product",
             "/items",
             "/item-search",
@@ -68,10 +70,7 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             "/api/products",
             "/api/search",
             "/v1/products",
-            "/v1/search",
-            "/v2/products",
-            "/v2/search",
-            "/"
+            "/v1/search"
     );
 
     public String getActiveSearchPath() {
@@ -315,6 +314,8 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                         .path(path)
                         .queryParam("query", safeQuery)
                         .queryParam("q", safeQuery)
+                        .queryParam("searchTerm", safeQuery)
+                        .queryParam("keyword", safeQuery)
                         .queryParam("page", "1")
                         .build())
                 .header("x-rapidapi-key", resolveApiKey())
@@ -790,6 +791,18 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             } catch (RestClientResponseException e) {
                 att.put("status", e.getStatusCode().value());
                 att.put("error", safeErrorSummary(e.getResponseBodyAsString()));
+                org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
+                if (headers != null) {
+                    if (headers.containsKey("x-ratelimit-requests-limit")) att.put("rateLimit", headers.getFirst("x-ratelimit-requests-limit"));
+                    if (headers.containsKey("x-ratelimit-requests-remaining")) att.put("rateRemaining", headers.getFirst("x-ratelimit-requests-remaining"));
+                    if (headers.containsKey("x-ratelimit-requests-reset")) att.put("rateResetSeconds", headers.getFirst("x-ratelimit-requests-reset"));
+                }
+                attempts.add(att);
+                if (e.getStatusCode().value() == 429) {
+                    // Do not flood provider when 429 rate limited
+                    break;
+                }
+                continue;
             } catch (Exception e) {
                 att.put("status", "ERROR");
                 att.put("error", e.getMessage());
