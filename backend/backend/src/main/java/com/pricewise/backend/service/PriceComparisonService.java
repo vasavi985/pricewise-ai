@@ -47,13 +47,21 @@ public class PriceComparisonService {
         dto.setImageUrl(product.getImageUrl());
         dto.setRating(product.getRating());
 
-        List<StoreProduct> storeProducts = null;
+        List<StoreProduct> rawStoreProducts = null;
         if (storeProductRepository != null && product.getId() != null) {
-            storeProducts = storeProductRepository.findByProductId(product.getId());
+            rawStoreProducts = storeProductRepository.findByProductId(product.getId());
         }
-        if (storeProducts == null || storeProducts.isEmpty()) {
-            storeProducts = product.getStoreProducts() != null ? product.getStoreProducts() : Collections.emptyList();
+        if (rawStoreProducts == null || rawStoreProducts.isEmpty()) {
+            rawStoreProducts = product.getStoreProducts() != null ? product.getStoreProducts() : Collections.emptyList();
         }
+
+        // Only allow real active stores: AMAZON and FLIPKART
+        List<StoreProduct> storeProducts = (rawStoreProducts != null)
+                ? rawStoreProducts.stream()
+                    .filter(sp -> sp != null && ("AMAZON".equalsIgnoreCase(sp.getStore()) || "FLIPKART".equalsIgnoreCase(sp.getStore())))
+                    .toList()
+                : Collections.emptyList();
+
         List<StorePriceDTO> storeDtos = new ArrayList<>();
 
         Double minPrice = null;
@@ -105,29 +113,21 @@ public class PriceComparisonService {
         // Add unconfigured/unavailable store status entries dynamically based on ProviderManager
         boolean hasAmazon = storeDtos.stream().anyMatch(s -> "AMAZON".equalsIgnoreCase(s.getStore()));
         boolean hasFlipkart = storeDtos.stream().anyMatch(s -> "FLIPKART".equalsIgnoreCase(s.getStore()));
-        boolean hasCroma = storeDtos.stream().anyMatch(s -> "CROMA".equalsIgnoreCase(s.getStore()));
 
         PriceProvider amz = (providerManager != null) ? providerManager.getProvider("AMAZON") : null;
         PriceProvider flp = (providerManager != null) ? providerManager.getProvider("FLIPKART") : null;
-        PriceProvider crm = (providerManager != null) ? providerManager.getProvider("CROMA") : null;
 
         if (!hasAmazon) {
             boolean configured = amz != null && amz.isConfigured();
             String storeStatus = configured ? "UNAVAILABLE" : "CONFIG_REQUIRED";
-            String title = configured ? "Amazon India" : "Amazon India (Config Required)";
+            String title = configured ? "Amazon (No matching result)" : "Amazon (API Key Required)";
             storeDtos.add(new StorePriceDTO(null, "AMAZON", title, null, "INR", "UNAVAILABLE", null, product.getImageUrl(), storeStatus, null, false));
         }
         if (!hasFlipkart) {
             boolean configured = flp != null && flp.isConfigured();
             String storeStatus = configured ? "UNAVAILABLE" : "CONFIG_REQUIRED";
-            String title = configured ? "Flipkart" : "Flipkart (Affiliate API Unconfigured)";
+            String title = configured ? "Flipkart (No matching result)" : "Flipkart (API Key Required)";
             storeDtos.add(new StorePriceDTO(null, "FLIPKART", title, null, "INR", "UNAVAILABLE", null, product.getImageUrl(), storeStatus, null, false));
-        }
-        if (!hasCroma) {
-            boolean configured = crm != null && crm.isConfigured();
-            String storeStatus = configured ? "UNAVAILABLE" : "UNAVAILABLE";
-            String title = "Croma (Public API Unavailable)";
-            storeDtos.add(new StorePriceDTO(null, "CROMA", title, null, "INR", "UNAVAILABLE", null, product.getImageUrl(), storeStatus, null, false));
         }
 
         // Sort store listings: lowest price first, unavailable last
@@ -144,14 +144,15 @@ public class PriceComparisonService {
             double avg = Math.round((sum / validStoreCount) * 100.0) / 100.0;
             dto.setAveragePrice(avg);
 
-            if (maxPrice != null && minPrice != null && maxPrice > minPrice) {
+            // Only show savings amount when both valid prices are available
+            if (validStoreCount >= 2 && maxPrice != null && minPrice != null && maxPrice > minPrice) {
                 double diff = Math.round((maxPrice - minPrice) * 100.0) / 100.0;
                 double pct = Math.round(((maxPrice - minPrice) / maxPrice * 100.0) * 10.0) / 10.0;
                 dto.setSavingsAmount(diff);
                 dto.setSavingsPercentage(pct);
             } else {
-                dto.setSavingsAmount(0.0);
-                dto.setSavingsPercentage(0.0);
+                dto.setSavingsAmount(null);
+                dto.setSavingsPercentage(null);
             }
         }
 
@@ -163,26 +164,8 @@ public class PriceComparisonService {
 
     private void generateIntelligence(PriceComparisonDTO dto, Product product) {
         if (dto.getLowestPrice() == null) {
-            dto.setTrendSummary("No live pricing available currently across connected providers.");
+            dto.setTrendSummary("No live pricing available currently across Amazon and Flipkart.");
             dto.setRecommendation("INSUFFICIENT DATA");
-            return;
-        }
-
-        if ("CATALOG".equalsIgnoreCase(dto.getBestStore())) {
-            PriceProvider amz = (providerManager != null) ? providerManager.getProvider("AMAZON") : null;
-            boolean amzConfigured = amz != null && amz.isConfigured();
-            if (amzConfigured) {
-                dto.setTrendSummary(String.format(
-                        "Internal Catalog Benchmark: Baseline reference price ₹%,.0f. Amazon is connected via RapidAPI; tracking active for price updates.",
-                        dto.getLowestPrice()
-                ));
-            } else {
-                dto.setTrendSummary(String.format(
-                        "Internal Catalog Benchmark: Baseline reference price ₹%,.0f. Connect Amazon RapidAPI or Flipkart Affiliate in .env to track real-time live store prices.",
-                        dto.getLowestPrice()
-                ));
-            }
-            dto.setRecommendation("CATALOG BENCHMARK");
             return;
         }
 

@@ -5,19 +5,19 @@ function Hero() {
   return (
     <section className="hero">
       <div className="hero-badge">
-        ✨ Real Price Intelligence &amp; Drop Tracking
+        ✨ Real Amazon vs Flipkart Price Comparison
       </div>
 
       <h1 className="hero-title">
-        Find the Best Price.
+        Compare Amazon &amp; Flipkart.
         <br />
-        <span>Track It. Save More.</span>
+        <span>Find the Lowest Price.</span>
       </h1>
 
       <p className="hero-description">
-        Search any product across Amazon, Flipkart, Croma, and live commerce.
+        Search any product and see real-time prices directly from Amazon and Flipkart side-by-side.
         <br />
-        PriceWise AI tracks historical prices over time, highlights the lowest deal, and notifies you the second prices drop.
+        PriceWise AI identifies the cheaper store, calculates your exact savings, and lets you track price drops.
       </p>
     </section>
   );

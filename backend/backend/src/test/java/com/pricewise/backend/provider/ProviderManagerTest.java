@@ -170,20 +170,44 @@ class ProviderManagerTest {
     }
 
     @Test
-    @DisplayName("Provider statuses and provider lookup by store name operate correctly")
+    @DisplayName("Provider statuses and provider lookup by store name operate correctly for Amazon and Flipkart")
     void testProviderStatusesAndLookup() {
         PriceProvider providerA = createStubProvider("AMAZON", 0, null, false);
-        PriceProvider providerB = createStubProvider("OPEN_COMMERCE", 0, null, false);
+        PriceProvider providerB = createStubProvider("FLIPKART", 0, null, false);
 
         ProviderManager manager = new ProviderManager(List.of(providerA, providerB), executorService);
 
         List<ProviderStatusDTO> statuses = manager.getProviderStatuses();
         assertEquals(2, statuses.size());
         assertEquals("AMAZON", statuses.get(0).getStore());
-        assertEquals("OPEN_COMMERCE", statuses.get(1).getStore());
+        assertEquals("FLIPKART", statuses.get(1).getStore());
 
         assertNotNull(manager.getProvider("AMAZON"));
-        assertNotNull(manager.getProvider("open_commerce"));
+        assertNotNull(manager.getProvider("flipkart"));
         assertNull(manager.getProvider("UNKNOWN_STORE"));
+    }
+
+    @Test
+    @DisplayName("Amazon and Flipkart execute concurrently through ProviderManager with failure isolation")
+    void testAmazonAndFlipkartConcurrentExecution() {
+        ProviderProductDTO amzItem = createMockProduct("AMAZON", "B01", "Apple iPhone 15", 69990.0);
+        ProviderProductDTO flpItem = createMockProduct("FLIPKART", "FK01", "Apple iPhone 15", 65999.0);
+
+        PriceProvider amazon = createStubProvider("AMAZON", 50, List.of(amzItem), false);
+        PriceProvider flipkart = createStubProvider("FLIPKART", 50, List.of(flpItem), false);
+
+        ProviderManager manager = new ProviderManager(List.of(amazon, flipkart), executorService, 5);
+
+        List<ProviderProductDTO> results = manager.searchAll("iPhone 15");
+        assertEquals(2, results.size());
+        assertEquals("AMAZON", results.get(0).getStore());
+        assertEquals("FLIPKART", results.get(1).getStore());
+
+        // When Flipkart fails, Amazon still returns safely
+        PriceProvider failingFlipkart = createStubProvider("FLIPKART", 0, null, true);
+        ProviderManager failoverManager = new ProviderManager(List.of(amazon, failingFlipkart), executorService, 5);
+        List<ProviderProductDTO> failoverResults = failoverManager.searchAll("iPhone 15");
+        assertEquals(1, failoverResults.size());
+        assertEquals("AMAZON", failoverResults.get(0).getStore());
     }
 }

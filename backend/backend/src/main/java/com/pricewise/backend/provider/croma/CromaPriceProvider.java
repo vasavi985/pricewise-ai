@@ -5,12 +5,14 @@ import com.pricewise.backend.provider.PriceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.List;
 
 @Component
+@ConditionalOnProperty(name = "pricewise.providers.croma.enabled", havingValue = "true", matchIfMissing = false)
 public class CromaPriceProvider implements PriceProvider {
 
     private static final Logger log = LoggerFactory.getLogger(CromaPriceProvider.class);

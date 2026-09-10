@@ -9,7 +9,7 @@ function Footer() {
         <div className="footer-brand">
           <h3>PriceWise <span>AI</span></h3>
           <p>
-            An open, transparent price intelligence and comparison platform.
+            An open, transparent real Amazon vs Flipkart price intelligence and comparison platform.
             Track real product prices, discover historical trends, and never overpay.
           </p>
         </div>
@@ -26,19 +26,16 @@ function Footer() {
         </div>
 
         <div className="footer-links-col">
-          <h4>Integrations</h4>
+          <h4>Store Integrations</h4>
           <ul>
-            <li><span>Amazon (PA-API 5.0)</span></li>
-            <li><span>Flipkart (Affiliate API)</span></li>
-            <li><span>Croma (Partner)</span></li>
-            <li><span>Open Commerce API</span></li>
-            <li><span>MySQL Catalog DB</span></li>
+            <li><span>Amazon (Real-Time API)</span></li>
+            <li><span>Flipkart (Real-Time API)</span></li>
           </ul>
         </div>
       </div>
 
       <div className="footer-bottom">
-        <p>© {new Date().getFullYear()} PriceWise AI. All product names, logos, and brands are property of their respective owners.</p>
+        <p>© {new Date().getFullYear()} PriceWise AI. Amazon and Flipkart product names, logos, and brands are property of their respective owners.</p>
       </div>
     </footer>
   );

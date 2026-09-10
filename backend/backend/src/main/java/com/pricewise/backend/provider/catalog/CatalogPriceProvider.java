@@ -4,12 +4,14 @@ import com.pricewise.backend.dto.ProviderProductDTO;
 import com.pricewise.backend.entity.Product;
 import com.pricewise.backend.provider.PriceProvider;
 import com.pricewise.backend.repository.ProductRepository;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
+@ConditionalOnProperty(name = "pricewise.providers.catalog.enabled", havingValue = "true", matchIfMissing = false)
 public class CatalogPriceProvider implements PriceProvider {
 
     private final ProductRepository productRepository;

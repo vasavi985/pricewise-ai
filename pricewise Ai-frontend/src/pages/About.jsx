@@ -10,7 +10,10 @@ function About() {
 
   useEffect(() => {
     productService.getProviders()
-      .then((data) => setProviders(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const raw = Array.isArray(data) ? data : [];
+        setProviders(raw.filter((p) => ["AMAZON", "FLIPKART"].includes(p.store?.toUpperCase())));
+      })
       .catch(() => {});
   }, []);
 
@@ -23,24 +26,24 @@ function About() {
           <span className="about-badge">Transparent Price Intelligence</span>
           <h1 className="about-title">About PriceWise AI</h1>
           <p className="about-lead">
-            PriceWise AI is an open, production-style price tracking and intelligence platform engineered to help consumers discover live multi-store pricing, track historical price movements, and receive automated notifications when real price drops happen.
+            PriceWise AI is a focused price comparison platform engineered to compare live prices between Amazon and Flipkart. We help consumers find genuine savings, discover historical trends, and receive automated notifications when real price drops happen.
           </p>
         </div>
 
         <section className="about-principles">
           <div className="principle-card">
             <div className="p-icon"><FaShieldAlt /></div>
-            <h3>Zero Fake Data</h3>
+            <h3>100% Real Commerce Data</h3>
             <p>
-              We distinguish clearly between <strong>LIVE</strong> prices, <strong>CATALOG</strong> verified data, and <strong>UNCONFIGURED</strong> integrations. We never invent fictitious prices or pretend that outdated data is live.
+              We only show verified <strong>LIVE</strong> prices directly from Amazon and Flipkart APIs. Zero fake catalogs, zero synthetic products, and zero artificial discounts.
             </p>
           </div>
 
           <div className="principle-card">
             <div className="p-icon"><FaServer /></div>
-            <h3>Provider Abstraction</h3>
+            <h3>Concurrent Live Querying</h3>
             <p>
-              Stores are isolated behind a clean <code>PriceProvider</code> interface. Official APIs (Amazon PA-API 5.0, Flipkart Affiliate API, Live Commerce) are called respecting rate limits and terms of service.
+              Every search executes concurrent queries against Amazon and Flipkart. Independent timeouts and fallback handling ensure resilient responses without cross-store interference.
             </p>
           </div>
 
@@ -48,7 +51,7 @@ function About() {
             <div className="p-icon"><FaChartLine /></div>
             <h3>Immutable Price History</h3>
             <p>
-              Price records are never overwritten. Every price retrieval creates an append-only time-series record, producing genuine historical price charts.
+              Price records are never overwritten. Every price retrieval creates an append-only time-series record, producing genuine historical price charts for both Amazon and Flipkart.
             </p>
           </div>
 
@@ -65,7 +68,7 @@ function About() {
         <section className="about-providers-section">
           <div className="sec-header">
             <FaStore className="sec-ico" />
-            <h2>Supported Store Integrations &amp; Status</h2>
+            <h2>Active Store Integrations &amp; Status</h2>
           </div>
 
           <div className="provider-table-wrapper">
@@ -82,16 +85,16 @@ function About() {
                 {providers.map((p) => (
                   <tr key={p.store}>
                     <td className="store-cell">
-                      <strong>{p.store}</strong>
+                      <strong>{p.store === "AMAZON" ? "Amazon" : p.store === "FLIPKART" ? "Flipkart" : p.store}</strong>
                     </td>
                     <td>{p.description}</td>
                     <td>
                       <span className={`table-status-pill pill-${p.status.toLowerCase()}`}>
-                        {p.status === "LIVE" ? "● Live Verified" : p.status === "SAMPLE_DATA" ? "Catalog Verified" : p.status === "CONFIG_REQUIRED" ? "API Key Required" : "Unavailable"}
+                        {p.status === "LIVE" ? "● Live Verified" : p.status === "CONFIG_REQUIRED" ? "API Key Required" : "Unavailable"}
                       </span>
                     </td>
                     <td className="config-cell">
-                      <code>{p.requiredConfig || "Ready out of the box"}</code>
+                      <code>{p.requiredConfig || "Configured"}</code>
                     </td>
                   </tr>
                 ))}

@@ -7,6 +7,7 @@ import com.pricewise.backend.provider.PriceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.*;
 
 @Component
+@ConditionalOnProperty(name = "pricewise.providers.live-commerce.enabled", havingValue = "true", matchIfMissing = false)
 public class LiveCommercePriceProvider implements PriceProvider, DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(LiveCommercePriceProvider.class);

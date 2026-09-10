@@ -12,10 +12,12 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import java.time.LocalDateTime;
 
 @Component
 @Order(1)
+@ConditionalOnProperty(name = "pricewise.seeder.enabled", havingValue = "true", matchIfMissing = false)
 public class FirestoreDataSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(FirestoreDataSeeder.class);

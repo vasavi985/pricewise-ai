@@ -44,13 +44,10 @@ public class ProductSearchService {
         String safeQuery = (query != null) ? query.trim() : "";
         log.info("Executing unified multi-provider search for: '{}'", safeQuery);
 
-        // 1. Synchronize any legacy products to ensure StoreProduct and PriceRecords exist
-        syncLegacyProducts();
-
-        // 2. Fetch from all registered providers
+        // 1. Fetch from registered active providers (AMAZON and FLIPKART)
         List<ProviderProductDTO> providerResults = providerManager.searchAll(safeQuery);
 
-        // 3. Ingest and match results to persistent Product entities
+        // 2. Ingest and match results to persistent Product entities
         Set<Long> matchedProductIds = new LinkedHashSet<>();
 
         for (ProviderProductDTO item : providerResults) {
@@ -63,23 +60,30 @@ public class ProductSearchService {
             matchedProductIds.add(product.getId());
         }
 
-        // Also include all database products if query is empty, or matching products if query is non-empty
-        if (safeQuery.isEmpty()) {
-            List<Product> allDb = productRepository.findAll();
-            for (Product p : allDb) {
-                matchedProductIds.add(p.getId());
-            }
-        } else {
-            List<Product> dbMatches = productRepository.searchProducts(safeQuery);
-            for (Product p : dbMatches) {
+        // Also include existing database products that have real Amazon or Flipkart listings
+        List<Product> candidateProducts = safeQuery.isEmpty()
+                ? productRepository.findAll()
+                : productRepository.searchProducts(safeQuery);
+
+        for (Product p : candidateProducts) {
+            List<StoreProduct> sps = storeProductRepository.findByProductId(p.getId());
+            boolean hasRealStore = sps != null && sps.stream()
+                    .anyMatch(sp -> sp != null && ("AMAZON".equalsIgnoreCase(sp.getStore()) || "FLIPKART".equalsIgnoreCase(sp.getStore()))
+                            && sp.getCurrentPrice() != null && sp.getCurrentPrice() > 0);
+            if (hasRealStore) {
                 matchedProductIds.add(p.getId());
             }
         }
 
-        // 4. Build comparative DTOs
+        // 3. Build comparative DTOs (only returning products with verified live store prices)
         List<PriceComparisonDTO> comparisons = new ArrayList<>();
         for (Long pid : matchedProductIds) {
-            productRepository.findById(pid).ifPresent(p -> comparisons.add(priceComparisonService.comparePrices(p)));
+            productRepository.findById(pid).ifPresent(p -> {
+                PriceComparisonDTO comp = priceComparisonService.comparePrices(p);
+                if (comp != null && comp.getLowestPrice() != null) {
+                    comparisons.add(comp);
+                }
+            });
         }
 
         return new ProductSearchResultDTO(safeQuery, comparisons, providerManager.getProviderStatuses());

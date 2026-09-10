@@ -273,21 +273,12 @@ function ProductDetails() {
           <div className="section-head">
             <FaStore className="sec-icon" />
             <div>
-              <h2 className="section-title">Store Price Comparison</h2>
+              <h2 className="section-title">Amazon vs Flipkart Price Comparison</h2>
               <p className="section-subtitle">
-                Prices and availability checked across supported retailer channels.
+                Live prices and availability checked directly on Amazon and Flipkart.
               </p>
             </div>
           </div>
-
-          {product.bestStore === "CATALOG" && (
-            <div className="catalog-disclaimer-banner">
-              <FaInfoCircle className="disclaimer-icon" />
-              <div className="disclaimer-text">
-                <strong>Internal Database Benchmark:</strong> The price shown below originates from the local reference catalog (SAMPLE DATA). Real-time price tracking is actively monitored across connected store providers.
-              </div>
-            </div>
-          )}
 
           <div className="stores-grid-details">
             {product.stores?.map((sp) => (

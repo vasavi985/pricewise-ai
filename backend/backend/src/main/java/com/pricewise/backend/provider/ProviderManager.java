@@ -17,6 +17,7 @@ public class ProviderManager implements DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(ProviderManager.class);
     private static final int DEFAULT_SEARCH_TIMEOUT_SECONDS = 7;
+    private static final java.util.Set<String> UNSUPPORTED_STORES = java.util.Set.of("CATALOG", "CROMA", "OPEN_COMMERCE");
 
     private final List<PriceProvider> providers;
     private final ExecutorService executorService;
@@ -39,10 +40,12 @@ public class ProviderManager implements DisposableBean {
     }
 
     public ProviderManager(List<PriceProvider> providers, ExecutorService executorService, int searchTimeoutSeconds) {
-        this.providers = providers != null ? providers : Collections.emptyList();
+        this.providers = providers != null
+                ? providers.stream().filter(p -> p != null && !UNSUPPORTED_STORES.contains(p.getStoreName().toUpperCase())).toList()
+                : Collections.emptyList();
         this.executorService = executorService;
         this.searchTimeoutSeconds = searchTimeoutSeconds > 0 ? searchTimeoutSeconds : DEFAULT_SEARCH_TIMEOUT_SECONDS;
-        log.info("Initialized ProviderManager with {} providers (concurrent execution enabled, timeout: {}s)",
+        log.info("Initialized ProviderManager with {} active providers (concurrent execution enabled, timeout: {}s)",
                 this.providers.size(), this.searchTimeoutSeconds);
         for (PriceProvider p : this.providers) {
             log.info(" - Provider: {} | Status: {} | Configured: {}", p.getStoreName(), p.getStoreStatus(), p.isConfigured());

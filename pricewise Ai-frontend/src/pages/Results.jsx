@@ -57,21 +57,23 @@ function Results() {
         {/* Provider integration status banner */}
         {searchData.providers?.length > 0 && (
           <div className="provider-status-bar">
-            <span className="ps-label"><FaStore /> Store Integrations:</span>
+            <span className="ps-label"><FaStore /> Live Providers:</span>
             <div className="ps-list">
-              {searchData.providers.map((p) => (
-                <div
-                  key={p.store}
-                  className={`ps-item ps-${p.status.toLowerCase()}`}
-                  title={`${p.description} — ${p.requiredConfig || "Ready"}`}
-                >
-                  <span className="ps-dot"></span>
-                  <span className="ps-name">{p.store}</span>
-                  <span className="ps-status">
-                    {p.status === "LIVE" ? "Live" : p.status === "SAMPLE_DATA" ? "Catalog" : p.status === "CONFIG_REQUIRED" ? "API Key Needed" : "Unavailable"}
-                  </span>
-                </div>
-              ))}
+              {searchData.providers
+                .filter((p) => ["AMAZON", "FLIPKART"].includes(p.store?.toUpperCase()))
+                .map((p) => (
+                  <div
+                    key={p.store}
+                    className={`ps-item ps-${p.status.toLowerCase()}`}
+                    title={`${p.description} — ${p.requiredConfig || "Active"}`}
+                  >
+                    <span className="ps-dot"></span>
+                    <span className="ps-name">{p.store === "AMAZON" ? "Amazon (Real-Time)" : p.store === "FLIPKART" ? "Flipkart (Real-Time)" : p.store}</span>
+                    <span className="ps-status">
+                      {p.status === "LIVE" ? "Live API" : p.status === "CONFIG_REQUIRED" ? "API Key Needed" : "Unavailable"}
+                    </span>
+                  </div>
+                ))}
             </div>
           </div>
         )}
@@ -81,7 +83,7 @@ function Results() {
           <div className="results-loading">
             <div className="loading-spinner-box">
               <FaSpinner className="spinner-icon" />
-              <p>Querying stores and comparing live prices...</p>
+              <p>Querying Amazon and Flipkart for live prices...</p>
             </div>
             <div className="skeleton-grid">
               {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -121,7 +123,7 @@ function Results() {
           <div className="results-content">
             <div className="results-meta-bar">
               <span className="results-count">
-                Found <strong>{searchData.results.length}</strong> product{searchData.results.length > 1 ? "s" : ""} with verified prices
+                Found <strong>{searchData.results.length}</strong> product{searchData.results.length > 1 ? "s" : ""} with Amazon &amp; Flipkart comparison
               </span>
             </div>
 

@@ -51,12 +51,11 @@ class ProductSearchServiceTest {
     }
 
     @Test
-    @DisplayName("When Amazon times out and returns empty, Open Commerce and Catalog results are preserved")
-    void testOpenCommerceAndCatalogPreservedWhenAmazonTimesOut() {
-        // Given Open Commerce returns a live product and Amazon returns nothing (timed out)
-        ProviderProductDTO openCommerceProduct = new ProviderProductDTO(
-                "OPEN_COMMERCE",
-                "LIVE-101",
+    @DisplayName("When Amazon times out, real Flipkart results are preserved and returned")
+    void testFlipkartPreservedWhenAmazonTimesOut() {
+        ProviderProductDTO flipkartProduct = new ProviderProductDTO(
+                "FLIPKART",
+                "MOB12345",
                 "Samsung Galaxy S24 Ultra",
                 "Samsung Galaxy S24 Ultra",
                 "Samsung",
@@ -64,7 +63,7 @@ class ProductSearchServiceTest {
                 "Smartphones",
                 "Flagship phone",
                 "http://img.com/s24.jpg",
-                "http://store.com/s24",
+                "https://flipkart.com/s24",
                 89999.0,
                 "INR",
                 "IN_STOCK",
@@ -72,7 +71,7 @@ class ProductSearchServiceTest {
                 4.8
         );
 
-        when(providerManager.searchAll(eq("Samsung Galaxy S24"))).thenReturn(List.of(openCommerceProduct));
+        when(providerManager.searchAll(eq("Samsung Galaxy S24"))).thenReturn(List.of(flipkartProduct));
 
         Product product = new Product();
         product.setId(101L);
@@ -82,99 +81,100 @@ class ProductSearchServiceTest {
         when(productRepository.findByCanonicalNameIgnoreCase(any())).thenReturn(Optional.of(product));
         when(productRepository.findAll()).thenReturn(List.of(product));
         when(productRepository.findById(101L)).thenReturn(Optional.of(product));
-        when(storeProductRepository.findByProductIdAndStore(101L, "OPEN_COMMERCE")).thenReturn(Optional.empty());
+        when(storeProductRepository.findByProductIdAndStore(101L, "FLIPKART")).thenReturn(Optional.empty());
         when(storeProductRepository.save(any(StoreProduct.class))).thenAnswer(i -> i.getArgument(0));
 
         PriceComparisonDTO comparisonDTO = new PriceComparisonDTO();
         comparisonDTO.setProductId(101L);
         comparisonDTO.setProductName("Samsung Galaxy S24 Ultra");
         comparisonDTO.setLowestPrice(89999.0);
-        comparisonDTO.setBestStore("OPEN_COMMERCE");
+        comparisonDTO.setBestStore("FLIPKART");
 
         when(priceComparisonService.comparePrices(product)).thenReturn(comparisonDTO);
         when(providerManager.getProviderStatuses()).thenReturn(List.of(
                 new ProviderStatusDTO("AMAZON", true, "UNAVAILABLE", "Amazon API", ""),
-                new ProviderStatusDTO("OPEN_COMMERCE", true, "LIVE", "Open Commerce API", ""),
-                new ProviderStatusDTO("CATALOG", true, "SAMPLE_DATA", "Catalog", "")
+                new ProviderStatusDTO("FLIPKART", true, "LIVE", "Flipkart API", "")
         ));
 
         ProductSearchResultDTO result = productSearchService.search("Samsung Galaxy S24");
 
         assertNotNull(result);
-        assertEquals(1, result.getTotalFound(), "Open Commerce product should still be found and returned");
+        assertEquals(1, result.getTotalFound(), "Flipkart product should be found and returned even if Amazon times out");
         assertEquals("Samsung Galaxy S24 Ultra", result.getResults().get(0).getProductName());
-        assertEquals("OPEN_COMMERCE", result.getResults().get(0).getBestStore());
+        assertEquals("FLIPKART", result.getResults().get(0).getBestStore());
 
-        // Verify provider statuses still report accurate states
         assertTrue(result.getProviders().stream().anyMatch(p -> "AMAZON".equals(p.getStore()) && "UNAVAILABLE".equals(p.getStatus())));
-        assertTrue(result.getProviders().stream().anyMatch(p -> "OPEN_COMMERCE".equals(p.getStore()) && "LIVE".equals(p.getStatus())));
+        assertTrue(result.getProviders().stream().anyMatch(p -> "FLIPKART".equals(p.getStore()) && "LIVE".equals(p.getStatus())));
     }
 
     @Test
-    @DisplayName("When Open Commerce and Amazon both time out or return empty, Catalog benchmark results are preserved")
-    void testCatalogPreservedWhenOpenCommerceAndAmazonTimeOut() {
-        // Given: both external providers timed out and providerManager returns empty
-        when(providerManager.searchAll(eq("MacBook Air M2"))).thenReturn(Collections.emptyList());
+    @DisplayName("When Flipkart times out, real Amazon results are preserved and returned")
+    void testAmazonPreservedWhenFlipkartTimesOut() {
+        ProviderProductDTO amazonProduct = new ProviderProductDTO(
+                "AMAZON",
+                "B0CHX2F5QT",
+                "iPhone 15",
+                "iPhone 15",
+                "Apple",
+                "iPhone 15",
+                "Smartphones",
+                "Apple smartphone",
+                "http://img.com/iphone.jpg",
+                "https://amazon.in/dp/B0CHX2F5QT",
+                69990.0,
+                "INR",
+                "IN_STOCK",
+                "LIVE",
+                4.7
+        );
 
-        Product catalogProduct = new Product();
-        catalogProduct.setId(1L);
-        catalogProduct.setCanonicalName("MacBook Air M2");
-        catalogProduct.setProductName("MacBook Air M2");
+        when(providerManager.searchAll(eq("iPhone 15"))).thenReturn(List.of(amazonProduct));
 
-        when(productRepository.searchProducts(eq("MacBook Air M2"))).thenReturn(List.of(catalogProduct));
-        when(productRepository.findAll()).thenReturn(List.of(catalogProduct));
-        when(productRepository.findById(1L)).thenReturn(Optional.of(catalogProduct));
+        Product product = new Product();
+        product.setId(201L);
+        product.setCanonicalName("iPhone 15");
+        product.setProductName("iPhone 15");
 
-        PriceComparisonDTO catalogComparison = new PriceComparisonDTO();
-        catalogComparison.setProductId(1L);
-        catalogComparison.setProductName("MacBook Air M2");
-        catalogComparison.setLowestPrice(71499.0);
-        catalogComparison.setBestStore("CATALOG");
+        when(productRepository.findByCanonicalNameIgnoreCase(any())).thenReturn(Optional.of(product));
+        when(productRepository.findAll()).thenReturn(List.of(product));
+        when(productRepository.findById(201L)).thenReturn(Optional.of(product));
+        when(storeProductRepository.findByProductIdAndStore(201L, "AMAZON")).thenReturn(Optional.empty());
+        when(storeProductRepository.save(any(StoreProduct.class))).thenAnswer(i -> i.getArgument(0));
 
-        when(priceComparisonService.comparePrices(catalogProduct)).thenReturn(catalogComparison);
+        PriceComparisonDTO comparisonDTO = new PriceComparisonDTO();
+        comparisonDTO.setProductId(201L);
+        comparisonDTO.setProductName("iPhone 15");
+        comparisonDTO.setLowestPrice(69990.0);
+        comparisonDTO.setBestStore("AMAZON");
+
+        when(priceComparisonService.comparePrices(product)).thenReturn(comparisonDTO);
         when(providerManager.getProviderStatuses()).thenReturn(List.of(
-                new ProviderStatusDTO("AMAZON", true, "UNAVAILABLE", "Amazon API", ""),
-                new ProviderStatusDTO("OPEN_COMMERCE", true, "LIVE", "Open Commerce API", ""),
-                new ProviderStatusDTO("CATALOG", true, "SAMPLE_DATA", "Catalog", "")
+                new ProviderStatusDTO("AMAZON", true, "LIVE", "Amazon API", ""),
+                new ProviderStatusDTO("FLIPKART", true, "UNAVAILABLE", "Flipkart API", "")
         ));
 
-        ProductSearchResultDTO result = productSearchService.search("MacBook Air M2");
+        ProductSearchResultDTO result = productSearchService.search("iPhone 15");
 
         assertNotNull(result);
-        assertEquals(1, result.getTotalFound(), "Catalog product should still be found from database even if live providers time out");
-        assertEquals("MacBook Air M2", result.getResults().get(0).getProductName());
-        assertEquals("CATALOG", result.getResults().get(0).getBestStore());
-        assertEquals(71499.0, result.getResults().get(0).getLowestPrice());
+        assertEquals(1, result.getTotalFound());
+        assertEquals("iPhone 15", result.getResults().get(0).getProductName());
+        assertEquals("AMAZON", result.getResults().get(0).getBestStore());
     }
 
     @Test
-    @DisplayName("Repeated search calls execute legacy product synchronization at most once and do not save unmodified products")
-    void testRepeatedSearchCallsExecuteLegacySyncOnlyOnce() {
-        Product p = new Product();
-        p.setId(10L);
-        p.setProductName("MacBook Air M2");
-        p.setCanonicalName("MacBook Air M2");
-        p.setImageUrl("https://example.com/macbook.jpg");
+    @DisplayName("When both Amazon and Flipkart return nothing, search returns an honest empty state without fabricating products")
+    void testBothProvidersEmptyReturnsHonestEmptyState() {
+        when(providerManager.searchAll(eq("Unknown Gadget"))).thenReturn(Collections.emptyList());
+        when(productRepository.searchProducts(eq("Unknown Gadget"))).thenReturn(Collections.emptyList());
+        when(providerManager.getProviderStatuses()).thenReturn(List.of(
+                new ProviderStatusDTO("AMAZON", true, "LIVE", "Amazon API", ""),
+                new ProviderStatusDTO("FLIPKART", true, "LIVE", "Flipkart API", "")
+        ));
 
-        when(productRepository.findAll()).thenReturn(List.of(p));
-        when(productRepository.searchProducts(eq("MacBook Air M2"))).thenReturn(List.of(p));
-        when(productRepository.findById(10L)).thenReturn(Optional.of(p));
-        when(providerManager.searchAll(any())).thenReturn(Collections.emptyList());
-        when(providerManager.getProviderStatuses()).thenReturn(Collections.emptyList());
-        when(priceComparisonService.comparePrices(any())).thenReturn(new PriceComparisonDTO());
+        ProductSearchResultDTO result = productSearchService.search("Unknown Gadget");
 
-        // First search call: executes syncLegacyProducts once
-        productSearchService.search("MacBook Air M2");
-        assertTrue(productSearchService.isLegacySynced());
-
-        // Second and third search calls: should bypass syncLegacyProducts immediately
-        productSearchService.search("MacBook Air M2");
-        productSearchService.search("MacBook Air M2");
-
-        // Verify productRepository.findAll() was only invoked ONCE (during the first syncLegacyProducts)
-        Mockito.verify(productRepository, Mockito.times(1)).findAll();
-
-        // Since the product already had canonicalName and imageUrl, productRepository.save should NOT be called
-        Mockito.verify(productRepository, Mockito.never()).save(p);
+        assertNotNull(result);
+        assertEquals(0, result.getTotalFound());
+        assertTrue(result.getResults().isEmpty());
     }
 }

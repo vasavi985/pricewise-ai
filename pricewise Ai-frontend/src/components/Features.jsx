@@ -5,23 +5,23 @@ import "../styles/features.css";
 const FEATURES_LIST = [
   {
     icon: <FaStore className="feature-icon store-ico" />,
-    title: "Multi-Store Comparison",
-    description: "Compare prices side-by-side across Amazon, Flipkart, Croma, and live commerce. See stock availability and exact savings instantly.",
+    title: "Amazon vs Flipkart Comparison",
+    description: "Compare real prices side-by-side between Amazon and Flipkart. Spot the lowest deal, exact price difference, and instant savings.",
   },
   {
     icon: <FaBell className="feature-icon bell-ico" />,
     title: "Automated Price Drop Alerts",
-    description: "Set a target price or desired discount percentage. Our background scheduler monitors prices and notifies you the second they drop.",
+    description: "Set your target price for either store. Our background scheduler monitors live prices and alerts you the second prices drop.",
   },
   {
     icon: <FaChartLine className="feature-icon chart-ico" />,
     title: "Real Historical Price Trends",
-    description: "View genuine historical price graphs powered by immutable records. Distinguish all-time lows from temporary markups.",
+    description: "View genuine historical price graphs powered by immutable records. Distinguish genuine all-time lows from temporary promotions.",
   },
   {
     icon: <FaShieldAlt className="feature-icon shield-ico" />,
-    title: "Verified Data & Transparency",
-    description: "Clear badges show whether data is live, catalog-verified, or requires configuration. No fake prices or artificial discounts.",
+    title: "100% Real Live Commerce Data",
+    description: "Zero mock data, zero fake catalogs, and zero synthetic prices. Every listing links directly to the real product on Amazon or Flipkart.",
   },
 ];
 
@@ -32,7 +32,7 @@ function Features() {
         <span className="features-badge">Built For Smart Shoppers</span>
         <h2 className="features-title">Why Use PriceWise AI?</h2>
         <p className="features-desc">
-          Stop opening 10 browser tabs to find the best deal. PriceWise AI gives you live intelligence, historical context, and automated tracking.
+          Stop switching back and forth between Amazon and Flipkart. PriceWise AI queries both in real time and highlights the genuine winner.
         </p>
       </div>
 

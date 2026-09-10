@@ -24,8 +24,6 @@ function Storecard({ storePrice, onTrack }) {
     switch (name?.toUpperCase()) {
       case "AMAZON": return "#FF9900";
       case "FLIPKART": return "#2874F0";
-      case "CROMA": return "#00B67A";
-      case "OPEN_COMMERCE": return "#6C4CF1";
       default: return "#4B5563";
     }
   };
@@ -50,12 +48,7 @@ function Storecard({ storePrice, onTrack }) {
     <div className={`store-card ${isLowest && status === "LIVE" ? "store-card-lowest" : ""} ${isUnavailable ? "store-card-disabled" : ""}`}>
       {isLowest && status === "LIVE" && (
         <div className="lowest-ribbon">
-          🏆 Lowest Verified Price
-        </div>
-      )}
-      {status === "SAMPLE_DATA" && (
-        <div className="catalog-ribbon">
-          📌 Catalog Benchmark
+          🏆 Lowest Price ({store === "AMAZON" ? "Amazon" : store === "FLIPKART" ? "Flipkart" : store})
         </div>
       )}
 
@@ -65,22 +58,20 @@ function Storecard({ storePrice, onTrack }) {
             className="store-logo-badge"
             style={{ backgroundColor: getStoreLogoColor(store) }}
           >
-            {store === "CATALOG" ? "DB" : store?.substring(0, 1).toUpperCase()}
+            {store?.substring(0, 1).toUpperCase()}
           </div>
           <div>
-            <h4 className="store-title">{store === "CATALOG" ? "Reference Catalog" : store}</h4>
+            <h4 className="store-title">{store === "AMAZON" ? "Amazon" : store === "FLIPKART" ? "Flipkart" : store}</h4>
             <div className="store-meta-tags">
               <span className={`status-tag status-${(status || "default").toLowerCase().replace("_", "-")}`}>
                 {status === "LIVE" && "● LIVE"}
-                {status === "SAMPLE_DATA" && "SAMPLE DATA"}
-                {status === "LAST_KNOWN" && "LAST KNOWN"}
                 {status === "CONFIG_REQUIRED" && "CONFIG REQUIRED"}
                 {status === "UNAVAILABLE" && "UNAVAILABLE"}
                 {status === "FETCH_FAILED" && "FETCH FAILED"}
-                {!["LIVE", "SAMPLE_DATA", "LAST_KNOWN", "CONFIG_REQUIRED", "UNAVAILABLE", "FETCH_FAILED"].includes(status) && status}
+                {!["LIVE", "CONFIG_REQUIRED", "UNAVAILABLE", "FETCH_FAILED"].includes(status) && status}
               </span>
               <span className="source-label">
-                {status === "LIVE" ? "Live Commerce API" : status === "SAMPLE_DATA" ? "Internal Catalog Baseline" : "Direct Provider"}
+                Real-Time Provider API
               </span>
             </div>
           </div>
@@ -97,7 +88,7 @@ function Storecard({ storePrice, onTrack }) {
 
       <div className="store-price-box">
         {isUnavailable ? (
-          <span className="price-unavailable">Price Unavailable</span>
+          <span className="price-unavailable">No Matching Result</span>
         ) : (
           <div className="price-stack">
             <span className="current-currency">₹</span>
@@ -118,16 +109,14 @@ function Storecard({ storePrice, onTrack }) {
             rel="noopener noreferrer"
             className="buy-btn"
           >
-            Buy on {store} <FaExternalLinkAlt className="ext-icon" />
+            Buy on {store === "AMAZON" ? "Amazon" : store === "FLIPKART" ? "Flipkart" : store} <FaExternalLinkAlt className="ext-icon" />
           </a>
         ) : (
           <button disabled className="buy-btn disabled">
             {status === "CONFIG_REQUIRED"
               ? "API Config Required"
               : status === "UNAVAILABLE"
-              ? "Integration Unavailable"
-              : status === "SAMPLE_DATA"
-              ? "Sample Benchmark (Not Purchasable)"
+              ? "No Result Available"
               : "Not Available"}
           </button>
         )}
