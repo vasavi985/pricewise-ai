@@ -111,12 +111,135 @@ public class PriceComparisonService {
         }
 
         // Add unconfigured/unavailable store status entries dynamically based on ProviderManager
-        boolean hasAmazon = storeDtos.stream().anyMatch(s -> "AMAZON".equalsIgnoreCase(s.getStore()));
-        boolean hasFlipkart = storeDtos.stream().anyMatch(s -> "FLIPKART".equalsIgnoreCase(s.getStore()));
+        boolean hasAmazon = storeDtos.stream().anyMatch(s -> "AMAZON".equalsIgnoreCase(s.getStore()) && s.getPrice() != null && s.getPrice() > 0);
+        boolean hasFlipkart = storeDtos.stream().anyMatch(s -> "FLIPKART".equalsIgnoreCase(s.getStore()) && s.getPrice() != null && s.getPrice() > 0);
 
         PriceProvider amz = (providerManager != null) ? providerManager.getProvider("AMAZON") : null;
         PriceProvider flp = (providerManager != null) ? providerManager.getProvider("FLIPKART") : null;
 
+        // If product has Amazon but lacks Flipkart, attempt live on-demand query if Flipkart is configured
+        if (!hasFlipkart && flp != null && flp.isConfigured() && product.getId() != null) {
+            try {
+                String searchTarget = product.getCanonicalName() != null ? product.getCanonicalName() : product.getProductName();
+                if (searchTarget != null && !searchTarget.trim().isEmpty()) {
+                    List<com.pricewise.backend.dto.ProviderProductDTO> items = flp.searchProducts(searchTarget);
+                    if (items != null && !items.isEmpty()) {
+                        com.pricewise.backend.dto.ProviderProductDTO item = items.get(0);
+                        if (item != null && item.getPrice() != null && item.getPrice() > 0) {
+                            StoreProduct sp = new StoreProduct(
+                                    product,
+                                    "FLIPKART",
+                                    item.getStoreProductId(),
+                                    item.getTitle(),
+                                    item.getProductUrl(),
+                                    item.getPrice(),
+                                    item.getCurrency(),
+                                    item.getAvailability(),
+                                    item.getStatus()
+                            );
+                            sp.setImageUrl(item.getImageUrl() != null ? item.getImageUrl() : product.getImageUrl());
+                            sp.setLastCheckedAt(java.time.LocalDateTime.now());
+                            if (storeProductRepository != null) {
+                                sp = storeProductRepository.save(sp);
+                            }
+                            if (priceRecordRepository != null) {
+                                PriceRecord rec = new PriceRecord(sp, sp.getCurrentPrice(), sp.getCurrency(), sp.getAvailability(), sp.getStatus());
+                                priceRecordRepository.save(rec);
+                            }
+
+                            Double price = sp.getCurrentPrice();
+                            if (minPrice == null || price < minPrice) {
+                                minPrice = price;
+                                bestStoreName = "FLIPKART";
+                            }
+                            if (maxPrice == null || price > maxPrice) {
+                                maxPrice = price;
+                            }
+                            sum += price;
+                            validStoreCount++;
+
+                            storeDtos.add(new StorePriceDTO(
+                                    sp.getId(),
+                                    sp.getStore(),
+                                    sp.getTitle(),
+                                    price,
+                                    sp.getCurrency(),
+                                    sp.getAvailability(),
+                                    sp.getProductUrl(),
+                                    sp.getImageUrl(),
+                                    sp.getStatus(),
+                                    sp.getLastCheckedAt(),
+                                    false
+                            ));
+                            hasFlipkart = true;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // If product has Flipkart but lacks Amazon, attempt live on-demand query if Amazon is configured
+        if (!hasAmazon && amz != null && amz.isConfigured() && product.getId() != null) {
+            try {
+                String searchTarget = product.getCanonicalName() != null ? product.getCanonicalName() : product.getProductName();
+                if (searchTarget != null && !searchTarget.trim().isEmpty()) {
+                    List<com.pricewise.backend.dto.ProviderProductDTO> items = amz.searchProducts(searchTarget);
+                    if (items != null && !items.isEmpty()) {
+                        com.pricewise.backend.dto.ProviderProductDTO item = items.get(0);
+                        if (item != null && item.getPrice() != null && item.getPrice() > 0) {
+                            StoreProduct sp = new StoreProduct(
+                                    product,
+                                    "AMAZON",
+                                    item.getStoreProductId(),
+                                    item.getTitle(),
+                                    item.getProductUrl(),
+                                    item.getPrice(),
+                                    item.getCurrency(),
+                                    item.getAvailability(),
+                                    item.getStatus()
+                            );
+                            sp.setImageUrl(item.getImageUrl() != null ? item.getImageUrl() : product.getImageUrl());
+                            sp.setLastCheckedAt(java.time.LocalDateTime.now());
+                            if (storeProductRepository != null) {
+                                sp = storeProductRepository.save(sp);
+                            }
+                            if (priceRecordRepository != null) {
+                                PriceRecord rec = new PriceRecord(sp, sp.getCurrentPrice(), sp.getCurrency(), sp.getAvailability(), sp.getStatus());
+                                priceRecordRepository.save(rec);
+                            }
+
+                            Double price = sp.getCurrentPrice();
+                            if (minPrice == null || price < minPrice) {
+                                minPrice = price;
+                                bestStoreName = "AMAZON";
+                            }
+                            if (maxPrice == null || price > maxPrice) {
+                                maxPrice = price;
+                            }
+                            sum += price;
+                            validStoreCount++;
+
+                            storeDtos.add(new StorePriceDTO(
+                                    sp.getId(),
+                                    sp.getStore(),
+                                    sp.getTitle(),
+                                    price,
+                                    sp.getCurrency(),
+                                    sp.getAvailability(),
+                                    sp.getProductUrl(),
+                                    sp.getImageUrl(),
+                                    sp.getStatus(),
+                                    sp.getLastCheckedAt(),
+                                    false
+                            ));
+                            hasAmazon = true;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // Add honest unavailable / config required entries only if genuine offer not found
         if (!hasAmazon) {
             boolean configured = amz != null && amz.isConfigured();
             String storeStatus = configured ? "UNAVAILABLE" : "CONFIG_REQUIRED";
@@ -128,6 +251,13 @@ public class PriceComparisonService {
             String storeStatus = configured ? "UNAVAILABLE" : "CONFIG_REQUIRED";
             String title = configured ? "Flipkart (No matching result)" : "Flipkart (API Key Required)";
             storeDtos.add(new StorePriceDTO(null, "FLIPKART", title, null, "INR", "UNAVAILABLE", null, product.getImageUrl(), storeStatus, null, false));
+        }
+
+        // Re-evaluate lowest price flag across all stores
+        if (minPrice != null) {
+            for (StorePriceDTO s : storeDtos) {
+                s.setLowest(s.getPrice() != null && Math.abs(s.getPrice() - minPrice) < 0.01);
+            }
         }
 
         // Sort store listings: lowest price first, unavailable last

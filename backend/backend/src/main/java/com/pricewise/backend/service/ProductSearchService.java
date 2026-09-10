@@ -217,6 +217,48 @@ public class ProductSearchService {
         }
     }
 
+    private static final Set<String> STOP_WORDS = Set.of(
+            "5g", "4g", "lte", "smartphone", "phone", "mobile", "ram", "rom", "storage",
+            "black", "white", "blue", "green", "gold", "silver", "gray", "grey", "titanium",
+            "with", "and", "for", "the", "edition", "series", "gb", "tb", "inch", "in"
+    );
+    private static final Set<String> MODEL_VARIANTS = Set.of("pro", "plus", "ultra", "mini", "max", "air", "fe", "lite", "neo");
+
+    private Set<String> extractProductTokens(String title) {
+        if (title == null || title.trim().isEmpty()) return Collections.emptySet();
+        String cleaned = title.toLowerCase().replaceAll("[^a-z0-9\\s]", " ");
+        String[] words = cleaned.split("\\s+");
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String w : words) {
+            if (w.length() >= 2 && !STOP_WORDS.contains(w) && !w.matches("^\\d+gb$") && !w.matches("^\\d+tb$")) {
+                tokens.add(w);
+            }
+        }
+        return tokens;
+    }
+
+    private boolean isTokenMatch(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) return false;
+
+        // Model variants must match exactly (e.g. Pro vs standard, Ultra vs standard)
+        for (String v : MODEL_VARIANTS) {
+            if (a.contains(v) != b.contains(v)) {
+                return false;
+            }
+        }
+
+        Set<String> smaller = a.size() <= b.size() ? a : b;
+        Set<String> larger = a.size() <= b.size() ? b : a;
+        int matchCount = 0;
+        for (String t : smaller) {
+            if (larger.contains(t)) {
+                matchCount++;
+            }
+        }
+
+        return (smaller.size() >= 2 && matchCount == smaller.size()) || (matchCount >= 3 && matchCount >= (smaller.size() * 0.75));
+    }
+
     private Product findOrCreateProduct(ProviderProductDTO item) {
         String canonical = item.getCanonicalName() != null ? item.getCanonicalName().trim() : item.getTitle().trim();
 
@@ -233,6 +275,20 @@ public class ProductSearchService {
                 if (!pName.isEmpty() && (lowerCanonical.contains(pName) || pName.contains(lowerCanonical))) {
                     existing = Optional.of(p);
                     break;
+                }
+            }
+
+            if (existing.isEmpty()) {
+                Set<String> itemTokens = extractProductTokens(canonical);
+                if (itemTokens.size() >= 2) {
+                    for (Product p : allProducts) {
+                        String pName = p.getCanonicalName() != null ? p.getCanonicalName() : p.getProductName();
+                        Set<String> prodTokens = extractProductTokens(pName);
+                        if (isTokenMatch(itemTokens, prodTokens)) {
+                            existing = Optional.of(p);
+                            break;
+                        }
+                    }
                 }
             }
         }

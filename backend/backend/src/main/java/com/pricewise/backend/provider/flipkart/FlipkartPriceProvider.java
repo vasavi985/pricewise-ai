@@ -609,6 +609,10 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         if (flipkartApiKey != null && !flipkartApiKey.trim().isEmpty()) {
             return flipkartApiKey.trim();
         }
+        String rapidKey = System.getenv("RAPIDAPI_KEY");
+        if (rapidKey != null && !rapidKey.trim().isEmpty()) {
+            return rapidKey.trim();
+        }
         return null;
     }
 

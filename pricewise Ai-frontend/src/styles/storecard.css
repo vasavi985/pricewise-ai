@@ -2,17 +2,18 @@
   background: white;
   border-radius: 16px;
   border: 1px solid #E5E7EB;
-  padding: 20px;
+  padding: 22px;
   position: relative;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
   transition: all 0.25s ease;
+  min-height: 240px;
 }
 
 .store-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
 }
 
 .store-card-lowest {
@@ -29,29 +30,17 @@
   color: white;
   font-size: 11px;
   font-weight: 700;
-  padding: 3px 12px;
+  padding: 4px 14px;
   border-radius: 20px;
   box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.catalog-ribbon {
-  position: absolute;
-  top: -12px;
-  left: 20px;
-  background: #D97706;
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 12px;
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+  letter-spacing: 0.3px;
 }
 
 .store-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .store-identity {
@@ -70,18 +59,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.store-title-wrap {
+  display: flex;
+  flex-direction: column;
 }
 
 .store-title {
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 800;
   color: #111827;
+  letter-spacing: 0.5px;
 }
 
 .store-meta-tags {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   margin-top: 3px;
 }
 
@@ -96,7 +93,7 @@
 }
 
 .source-label {
-  font-size: 10px;
+  font-size: 11px;
   color: #64748B;
   font-weight: 500;
 }
@@ -104,18 +101,6 @@
 .status-live {
   background: #DCFCE7;
   color: #15803D;
-}
-
-.status-sample_data,
-.status-sample-data {
-  background: #FEF3C7;
-  color: #B45309;
-}
-
-.status-last-known,
-.status-last_known {
-  background: #E0E7FF;
-  color: #3730A3;
 }
 
 .status-config_required,
@@ -138,12 +123,14 @@
 
 .avail-badge {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 12px;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
 .avail-in {
@@ -160,10 +147,11 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 14px;
+  padding: 14px 16px;
   background: #F8FAFC;
+  border: 1px solid #F1F5F9;
   border-radius: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .price-stack {
@@ -192,7 +180,7 @@
 .price-unavailable {
   font-size: 16px;
   font-weight: 600;
-  color: #9CA3AF;
+  color: #94A3B8;
 }
 
 .last-checked {
@@ -200,34 +188,44 @@
   color: #6B7280;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 
 .store-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px;
+  align-items: center;
+  margin-top: auto;
 }
 
 .buy-btn {
   flex: 1;
+  height: 44px;
   background: #111827;
   color: white;
-  padding: 11px;
+  padding: 0 16px;
   border-radius: 10px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
   border: none;
   cursor: pointer;
   transition: all 0.2s;
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.buy-btn:hover:not(.disabled) {
-  background: #000000;
+.buy-btn-amazon:hover:not(.disabled) {
+  background: #FF9900;
+  color: #111827;
+}
+
+.buy-btn-flipkart:hover:not(.disabled) {
+  background: #2874F0;
+  color: #FFFFFF;
 }
 
 .buy-btn.disabled {
@@ -241,24 +239,28 @@
 }
 
 .track-btn {
+  height: 44px;
   background: #EEF2FF;
   color: #6C4CF1;
   border: 1px solid #C7D2FE;
-  padding: 11px 16px;
+  padding: 0 18px;
   border-radius: 10px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
-.track-btn:hover {
+.track-btn:hover:not(:disabled) {
   background: #E0E7FF;
+  border-color: #A5B4FC;
 }
 
-.store-card-disabled {
-  opacity: 0.7;
+.track-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

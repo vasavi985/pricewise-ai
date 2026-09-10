@@ -235,13 +235,29 @@ function ProductDetails() {
                 </div>
               )}
 
-              <div className="qs-item">
-                <span className="qs-label">Stores Compared</span>
-                <span className="qs-val-dark">
-                  {product.stores?.length || 0} Stores
-                </span>
-                <span className="qs-sub">Real live records</span>
-              </div>
+              {(() => {
+                const validStores = product.stores?.filter(
+                  (s) => s.price != null && s.price > 0 && s.status === "LIVE"
+                ) || [];
+                const count = validStores.length;
+                return (
+                  <div className="qs-item">
+                    <span className="qs-label">
+                      {count >= 2 ? "Stores Compared" : "Store Available"}
+                    </span>
+                    <span className="qs-val-dark">
+                      {count >= 2 ? "2 Stores Compared" : count === 1 ? "1 Store Available" : "0 Stores Available"}
+                    </span>
+                    <span className="qs-sub">
+                      {count >= 2
+                        ? "Amazon & Flipkart verified"
+                        : count === 1
+                        ? `${validStores[0]?.store?.toUpperCase()} verified`
+                        : "No live offers"}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="hero-cta-bar">

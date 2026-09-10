@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FaStar, FaExternalLinkAlt, FaCheck, FaTimes } from "react-icons/fa";
+import { FaStar, FaExternalLinkAlt } from "react-icons/fa";
 import "../styles/productcard.css";
 
 function Productcard({ product }) {
@@ -38,6 +38,14 @@ function Productcard({ product }) {
       cheaperStore = "EQUAL";
     }
   }
+
+  const comparisonCountText = bothAvailable
+    ? "2 stores compared:"
+    : hasAmazonPrice
+    ? "1 store available:"
+    : hasFlipkartPrice
+    ? "1 store available:"
+    : "Price check:";
 
   return (
     <div className="product-card">
@@ -89,6 +97,10 @@ function Productcard({ product }) {
 
         {/* Amazon vs Flipkart Comparison Box */}
         <div className="comparison-box">
+          <div className="comparison-header">
+            <span className="comparison-count-label">{comparisonCountText}</span>
+          </div>
+
           {/* Amazon Row */}
           <div className={`store-compare-row ${cheaperStore === "AMAZON" ? "cheaper-row" : ""}`}>
             <div className="store-identity-col">

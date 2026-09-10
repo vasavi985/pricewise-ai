@@ -19,12 +19,22 @@ function Storecard({ storePrice, onTrack }) {
   } = storePrice;
 
   const isUnavailable = availability === "UNAVAILABLE" || price == null || price <= 0;
+  const isLive = status === "LIVE" && !isUnavailable;
+  const storeUpper = (store || "").toUpperCase();
 
   const getStoreLogoColor = (name) => {
-    switch (name?.toUpperCase()) {
+    switch (name) {
       case "AMAZON": return "#FF9900";
       case "FLIPKART": return "#2874F0";
       default: return "#4B5563";
+    }
+  };
+
+  const getStoreInitial = (name) => {
+    switch (name) {
+      case "AMAZON": return "A";
+      case "FLIPKART": return "F";
+      default: return name ? name.charAt(0) : "S";
     }
   };
 
@@ -45,10 +55,10 @@ function Storecard({ storePrice, onTrack }) {
   };
 
   return (
-    <div className={`store-card ${isLowest && status === "LIVE" ? "store-card-lowest" : ""} ${isUnavailable ? "store-card-disabled" : ""}`}>
-      {isLowest && status === "LIVE" && (
+    <div className={`store-card ${isLowest && isLive ? "store-card-lowest" : ""} store-card-${storeUpper.toLowerCase()}`}>
+      {isLowest && isLive && (
         <div className="lowest-ribbon">
-          🏆 Lowest Price ({store === "AMAZON" ? "Amazon" : store === "FLIPKART" ? "Flipkart" : store})
+          🏆 Lowest Price ({storeUpper})
         </div>
       )}
 
@@ -56,22 +66,22 @@ function Storecard({ storePrice, onTrack }) {
         <div className="store-identity">
           <div
             className="store-logo-badge"
-            style={{ backgroundColor: getStoreLogoColor(store) }}
+            style={{ backgroundColor: getStoreLogoColor(storeUpper) }}
           >
-            {store?.substring(0, 1).toUpperCase()}
+            {getStoreInitial(storeUpper)}
           </div>
-          <div>
-            <h4 className="store-title">{store === "AMAZON" ? "Amazon" : store === "FLIPKART" ? "Flipkart" : store}</h4>
+          <div className="store-title-wrap">
+            <h4 className="store-title">{storeUpper}</h4>
             <div className="store-meta-tags">
               <span className={`status-tag status-${(status || "default").toLowerCase().replace("_", "-")}`}>
-                {status === "LIVE" && "● LIVE"}
+                {status === "LIVE" && "• LIVE"}
                 {status === "CONFIG_REQUIRED" && "CONFIG REQUIRED"}
                 {status === "UNAVAILABLE" && "UNAVAILABLE"}
                 {status === "FETCH_FAILED" && "FETCH FAILED"}
                 {!["LIVE", "CONFIG_REQUIRED", "UNAVAILABLE", "FETCH_FAILED"].includes(status) && status}
               </span>
               <span className="source-label">
-                Real-Time Provider API
+                Direct Provider API
               </span>
             </div>
           </div>
@@ -81,14 +91,16 @@ function Storecard({ storePrice, onTrack }) {
           {isUnavailable ? (
             <span className="avail-badge avail-out"><FaTimes /> Unavailable</span>
           ) : (
-            <span className="avail-badge avail-in"><FaCheck /> {availability.replace("_", " ")}</span>
+            <span className="avail-badge avail-in"><FaCheck /> {availability?.replace("_", " ") || "IN STOCK"}</span>
           )}
         </div>
       </div>
 
       <div className="store-price-box">
         {isUnavailable ? (
-          <span className="price-unavailable">No Matching Result</span>
+          <div className="price-stack">
+            <span className="price-unavailable">Price Unavailable</span>
+          </div>
         ) : (
           <div className="price-stack">
             <span className="current-currency">₹</span>
@@ -102,34 +114,32 @@ function Storecard({ storePrice, onTrack }) {
       </div>
 
       <div className="store-actions">
-        {productUrl && !isUnavailable && status === "LIVE" ? (
+        {productUrl && isLive ? (
           <a
             href={productUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="buy-btn"
+            className={`buy-btn buy-btn-${storeUpper.toLowerCase()}`}
           >
-            Buy on {store === "AMAZON" ? "Amazon" : store === "FLIPKART" ? "Flipkart" : store} <FaExternalLinkAlt className="ext-icon" />
+            Buy on {storeUpper} <FaExternalLinkAlt className="ext-icon" />
           </a>
         ) : (
           <button disabled className="buy-btn disabled">
             {status === "CONFIG_REQUIRED"
               ? "API Config Required"
-              : status === "UNAVAILABLE"
-              ? "No Result Available"
-              : "Not Available"}
+              : "No Result Available"}
           </button>
         )}
 
-        {!isUnavailable && status !== "CONFIG_REQUIRED" && status !== "UNAVAILABLE" && storePrice.id && onTrack && (
-          <button
-            type="button"
-            className="track-btn"
-            onClick={() => onTrack(storePrice)}
-          >
-            <FaBell /> Track Price
-          </button>
-        )}
+        <button
+          type="button"
+          className="track-btn"
+          onClick={() => isLive && id && onTrack && onTrack(storePrice)}
+          disabled={!isLive || !id}
+          title={!isLive ? "Tracking unavailable for this listing" : `Track price on ${storeUpper}`}
+        >
+          <FaBell /> Track Price
+        </button>
       </div>
     </div>
   );
