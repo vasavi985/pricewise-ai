@@ -79,16 +79,23 @@ public class ProviderManager implements DisposableBean {
             return Collections.emptyList();
         }
 
+        log.info("SEARCH START [{}]: Concurrently dispatching across active providers: {}",
+                query, providers.stream().map(PriceProvider::getStoreName).toList());
+
         // Dispatch all provider searches concurrently
         List<CompletableFuture<List<ProviderProductDTO>>> futures = providers.stream()
                 .map(provider -> CompletableFuture.supplyAsync(() -> {
+                    String store = provider.getStoreName();
                     try {
-                        log.debug("Invoking provider [{}] concurrently for query: {}", provider.getStoreName(), query);
+                        log.info("SEARCH [{}]: {} provider started (configured={}, status={})",
+                                query, store, provider.isConfigured(), provider.getStoreStatus());
                         List<ProviderProductDTO> results = provider.searchProducts(query);
+                        int count = results != null ? results.size() : 0;
+                        log.info("SEARCH [{}]: {} provider returned {} products", query, store, count);
                         return results != null ? results : Collections.<ProviderProductDTO>emptyList();
                     } catch (Exception e) {
                         // Non-fatal: isolate provider errors so other providers succeed
-                        log.error("Provider [{}] encountered an error during search: {}", provider.getStoreName(), e.getMessage());
+                        log.error("SEARCH [{}]: {} provider error: {}", query, store, e.getMessage());
                         return Collections.<ProviderProductDTO>emptyList();
                     }
                 }, executorService))

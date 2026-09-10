@@ -15,6 +15,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import com.pricewise.backend.provider.PriceProvider;
+import com.pricewise.backend.provider.flipkart.FlipkartPriceProvider;
 
 @RestController
 @RequestMapping("/api/products")
@@ -129,5 +132,16 @@ public class ProductController {
     @GetMapping("/providers")
     public ResponseEntity<List<ProviderStatusDTO>> getProviderStatuses() {
         return ResponseEntity.ok(providerManager.getProviderStatuses());
+    }
+
+    // Diagnostic endpoint to inspect live Flipkart endpoints and schema
+    @GetMapping("/diagnose-flipkart")
+    public ResponseEntity<Map<String, Object>> diagnoseFlipkart(
+            @RequestParam(value = "query", required = false, defaultValue = "Samsung Galaxy S24") String query) {
+        PriceProvider provider = providerManager.getProvider("FLIPKART");
+        if (provider instanceof FlipkartPriceProvider flipkart) {
+            return ResponseEntity.ok(flipkart.diagnoseProvider(query));
+        }
+        return ResponseEntity.ok(Map.of("error", "Flipkart provider not found"));
     }
 }

@@ -49,6 +49,37 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     private volatile long lastFailureTime = 0;
     private static final long UNAVAILABLE_COOLDOWN_MS = 60 * 1000; // 1-minute auto-recovery window
     private volatile String lastError = null;
+    private volatile String discoveredSearchPath = null;
+
+    public static final List<String> CANDIDATE_SEARCH_PATHS = List.of(
+            "/search",
+            "/products",
+            "/product-search",
+            "/products/search",
+            "/search-products",
+            "/search-product",
+            "/items",
+            "/item-search",
+            "/flipkart/search",
+            "/flipkart/products",
+            "/flipkart-search",
+            "/searchByKeyword",
+            "/search_by_keyword",
+            "/api/products",
+            "/api/search",
+            "/v1/products",
+            "/v1/search",
+            "/v2/products",
+            "/v2/search",
+            "/"
+    );
+
+    public String getActiveSearchPath() {
+        if (discoveredSearchPath != null && !discoveredSearchPath.trim().isEmpty()) {
+            return discoveredSearchPath.trim();
+        }
+        return (searchPath != null && !searchPath.trim().isEmpty()) ? searchPath.trim() : "/search";
+    }
 
     private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
 
@@ -178,19 +209,20 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         }
 
         CompletableFuture<List<ProviderProductDTO>> future = CompletableFuture.supplyAsync(() -> {
-            final String currentPath = searchPath != null && !searchPath.trim().isEmpty() ? searchPath.trim() : "/search";
+            final String currentPath = getActiveSearchPath();
             try {
-                log.info("Querying Real-Time Flipkart Data API on [{}] for query: '{}'", host, safeQuery);
+                log.info("Querying Real-Time Flipkart Data API on [{}] at path [{}] for query: '{}'", host, currentPath, safeQuery);
                 String response = executeSearchRequest(host, currentPath, safeQuery);
 
                 if (response == null || response.trim().isEmpty()) {
-                    log.warn("Real-Time Flipkart Data API returned empty response for query: '{}'", safeQuery);
+                    log.warn("Real-Time Flipkart Data API returned empty response on path [{}] for query: '{}'", currentPath, safeQuery);
                     return Collections.<ProviderProductDTO>emptyList();
                 }
 
                 List<ProviderProductDTO> results = parseSearchResponse(response);
                 this.isUnavailable = false;
                 this.lastError = null;
+                this.discoveredSearchPath = currentPath;
 
                 // Cache up to 100 queries
                 if (searchCache.size() > 100) {
@@ -198,48 +230,50 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                 }
                 searchCache.put(cacheKey, new CacheEntry(results));
 
-                log.info("Flipkart search query = '{}' | HTTP status = 200 | Mapped PriceWise results = {}", safeQuery, results.size());
+                log.info("Flipkart search query = '{}' | Path = [{}] | HTTP status = 200 | Mapped PriceWise results = {}", safeQuery, currentPath, results.size());
                 return results;
 
             } catch (RestClientResponseException e) {
                 String safeSummary = safeErrorSummary(e.getResponseBodyAsString());
-                log.error("Real-Time Flipkart Data API returned HTTP error: status={}, body={}", e.getStatusCode(), safeSummary);
-                this.isUnavailable = true;
-                this.lastFailureTime = System.currentTimeMillis();
-                this.lastError = "HTTP " + e.getStatusCode().value() + " (" + host + "): " + safeSummary;
+                log.error("Real-Time Flipkart Data API returned HTTP error on path [{}]: status={}, body={}", currentPath, e.getStatusCode(), safeSummary);
 
-                // If primary search endpoint was 404, attempt fallback to /search-products or /products
+                // If primary search endpoint was 404, probe other candidate search paths
                 if (e.getStatusCode().value() == 404) {
-                    String[] fallbacks = new String[]{"/search-products", "/products", "/v1/search"};
-                    for (String fbPath : fallbacks) {
-                        if (!fbPath.equalsIgnoreCase(currentPath)) {
+                    for (String candidate : CANDIDATE_SEARCH_PATHS) {
+                        if (!candidate.equalsIgnoreCase(currentPath)) {
                             try {
-                                log.info("Attempting fallback search endpoint {} for query: '{}'", fbPath, safeQuery);
-                                String fallbackResponse = executeSearchRequest(host, fbPath, safeQuery);
-                                if (fallbackResponse != null && !fallbackResponse.trim().isEmpty()) {
-                                    List<ProviderProductDTO> results = parseSearchResponse(fallbackResponse);
-                                    if (!results.isEmpty()) {
-                                        this.isUnavailable = false;
-                                        this.lastError = null;
-                                        searchCache.put(cacheKey, new CacheEntry(results));
-                                        return results;
-                                    }
+                                log.info("Attempting candidate search endpoint {} on [{}] for query: '{}'", candidate, host, safeQuery);
+                                String candidateResponse = executeSearchRequest(host, candidate, safeQuery);
+                                if (candidateResponse != null && !candidateResponse.trim().isEmpty()) {
+                                    List<ProviderProductDTO> results = parseSearchResponse(candidateResponse);
+                                    this.discoveredSearchPath = candidate;
+                                    this.isUnavailable = false;
+                                    this.lastError = null;
+                                    log.info("Successfully discovered active Flipkart search endpoint '{}' on [{}] (returned {} results)", candidate, host, results.size());
+                                    searchCache.put(cacheKey, new CacheEntry(results));
+                                    return results;
                                 }
-                            } catch (Exception fallbackEx) {
-                                log.debug("Fallback {} endpoint failed: {}", fbPath, fallbackEx.getMessage());
+                            } catch (RestClientResponseException candidateEx) {
+                                log.debug("Candidate {} returned HTTP {}", candidate, candidateEx.getStatusCode());
+                            } catch (Exception candidateEx) {
+                                log.debug("Candidate {} failed: {}", candidate, candidateEx.getMessage());
                             }
                         }
                     }
                 }
+
+                this.isUnavailable = true;
+                this.lastFailureTime = System.currentTimeMillis();
+                this.lastError = "HTTP " + e.getStatusCode().value() + " (" + host + " at " + currentPath + "): " + safeSummary;
                 return Collections.<ProviderProductDTO>emptyList();
             } catch (ResourceAccessException e) {
-                log.error("Real-Time Flipkart Data API connection/timeout error: {}", e.getMessage());
+                log.error("Real-Time Flipkart Data API connection/timeout error on [{}]: {}", host, e.getMessage());
                 this.isUnavailable = true;
                 this.lastFailureTime = System.currentTimeMillis();
                 this.lastError = "Connection error (" + host + "): " + e.getMessage();
                 return Collections.<ProviderProductDTO>emptyList();
             } catch (Exception e) {
-                log.error("Unexpected error querying Real-Time Flipkart Data API: {}", e.getMessage());
+                log.error("Unexpected error querying Real-Time Flipkart Data API on [{}]: {}", host, e.getMessage());
                 this.isUnavailable = true;
                 this.lastFailureTime = System.currentTimeMillis();
                 this.lastError = "Provider error (" + host + "): " + e.getMessage();
@@ -445,6 +479,10 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                 productsNode = root.path("response").path("products");
             } else if (root.path("response").path("data").isArray()) {
                 productsNode = root.path("response").path("data");
+            }
+
+            if (productsNode == null || productsNode.isEmpty()) {
+                productsNode = findFirstProductArray(root);
             }
 
             if (productsNode == null || productsNode.isEmpty()) {
@@ -705,5 +743,118 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             return flipkartApiHost.trim();
         }
         return DEFAULT_RAPIDAPI_HOST;
+    }
+
+    public Map<String, Object> diagnoseProvider(String query) {
+        String safeQuery = (query != null && !query.trim().isEmpty()) ? query.trim() : "Samsung Galaxy S24";
+        String host = resolveApiHost();
+        boolean configured = isConfigured();
+
+        Map<String, Object> diag = new LinkedHashMap<>();
+        diag.put("store", "FLIPKART");
+        diag.put("host", host);
+        diag.put("configured", configured);
+        diag.put("activeSearchPath", getActiveSearchPath());
+        diag.put("lastError", lastError);
+        diag.put("status", getStoreStatus());
+        diag.put("query", safeQuery);
+
+        if (!configured) {
+            diag.put("message", "Provider is not configured with FLIPKART_API_KEY");
+            return diag;
+        }
+
+        List<Map<String, Object>> attempts = new ArrayList<>();
+        String workingPath = null;
+        List<ProviderProductDTO> workingProducts = null;
+
+        for (String candidate : CANDIDATE_SEARCH_PATHS) {
+            Map<String, Object> att = new LinkedHashMap<>();
+            att.put("path", candidate);
+            try {
+                long start = System.currentTimeMillis();
+                String response = executeSearchRequest(host, candidate, safeQuery);
+                long elapsed = System.currentTimeMillis() - start;
+                att.put("status", 200);
+                att.put("elapsedMs", elapsed);
+                att.put("responseLength", response != null ? response.length() : 0);
+                att.put("bodySnippet", response != null ? safeSnippet(response, 300) : null);
+
+                List<ProviderProductDTO> parsed = parseSearchResponse(response);
+                att.put("parsedCount", parsed.size());
+
+                if (!parsed.isEmpty() && workingPath == null) {
+                    workingPath = candidate;
+                    workingProducts = parsed;
+                }
+            } catch (RestClientResponseException e) {
+                att.put("status", e.getStatusCode().value());
+                att.put("error", safeErrorSummary(e.getResponseBodyAsString()));
+            } catch (Exception e) {
+                att.put("status", "ERROR");
+                att.put("error", e.getMessage());
+            }
+            attempts.add(att);
+            if (workingPath != null) {
+                break; // Discovered active working endpoint
+            }
+        }
+
+        diag.put("endpointAttempts", attempts);
+        if (workingPath != null) {
+            this.discoveredSearchPath = workingPath;
+            this.isUnavailable = false;
+            this.lastError = null;
+            diag.put("discoveredWorkingPath", workingPath);
+            diag.put("parsedProductCount", workingProducts.size());
+            diag.put("sampleProducts", workingProducts.stream().limit(3).toList());
+        } else {
+            diag.put("discoveredWorkingPath", null);
+        }
+
+        return diag;
+    }
+
+    private static String safeSnippet(String text, int maxLen) {
+        if (text == null) return null;
+        String clean = text.replaceAll("(?i)key=[^&\\s]+", "key=REDACTED")
+                .replaceAll("(?i)\"([^\"]*key[^\"]*)\"\\s*:\\s*\"[^\"]+\"", "\"$1\":\"REDACTED\"");
+        return clean.length() > maxLen ? clean.substring(0, maxLen) + "..." : clean;
+    }
+
+    private JsonNode findFirstProductArray(JsonNode node) {
+        if (node == null) return null;
+        if (node.isArray() && !node.isEmpty()) {
+            JsonNode first = node.get(0);
+            if (first.isObject() && hasProductField(first)) {
+                return node;
+            }
+        }
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                JsonNode child = entry.getValue();
+                if (child.isArray() && !child.isEmpty()) {
+                    JsonNode first = child.get(0);
+                    if (first.isObject() && hasProductField(first)) {
+                        return child;
+                    }
+                }
+            }
+            fields = node.fields();
+            while (fields.hasNext()) {
+                JsonNode inner = findFirstProductArray(fields.next().getValue());
+                if (inner != null) return inner;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasProductField(JsonNode item) {
+        return item.has("product_title") || item.has("title") || item.has("name") ||
+                item.has("product_name") || item.has("productTitle") || item.has("productName") ||
+                item.has("price") || item.has("current_price") || item.has("product_price") ||
+                item.has("selling_price") || item.has("product_id") || item.has("pid") || item.has("id");
     }
 }

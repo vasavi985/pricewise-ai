@@ -106,6 +106,9 @@ public class ProductSearchService {
             }
         }
 
+        log.info("SEARCH MATCHING [{}]: Ingested {} provider results across {} matched products",
+                safeQuery, providerResults.size(), matchedProductIds.size());
+
         // 3. Build comparative DTOs (only returning products with verified live store prices)
         List<PriceComparisonDTO> comparisons = new ArrayList<>();
         for (Long pid : matchedProductIds) {
@@ -117,12 +120,22 @@ public class ProductSearchService {
             });
         }
 
+        log.info("SEARCH COMPLETE [{}]: Produced {} comparative product results", safeQuery, comparisons.size());
+
+        boolean anyProviderUnhealthy = providerManager.getProviderStatuses().stream()
+                .anyMatch(p -> p.isConfigured() && !"LIVE".equalsIgnoreCase(p.getStatus()));
+
         ProductSearchResultDTO searchResult = new ProductSearchResultDTO(safeQuery, comparisons, providerManager.getProviderStatuses());
 
         if (searchCache.size() > 200) {
             searchCache.clear();
         }
-        searchCache.put(cacheKey, new CachedSearchResult(searchResult));
+        // Only cache when all configured providers are healthy and comparison results exist
+        if (!anyProviderUnhealthy && !comparisons.isEmpty()) {
+            searchCache.put(cacheKey, new CachedSearchResult(searchResult));
+        } else {
+            log.info("SEARCH [{}]: Bypassing search cache storage (unhealthy providers or empty comparisons)", safeQuery);
+        }
 
         return searchResult;
     }
