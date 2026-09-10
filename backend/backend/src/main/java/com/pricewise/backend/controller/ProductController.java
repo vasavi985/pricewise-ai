@@ -137,9 +137,13 @@ public class ProductController {
     // Diagnostic endpoint to inspect live Flipkart endpoints and schema
     @GetMapping("/diagnose-flipkart")
     public ResponseEntity<Map<String, Object>> diagnoseFlipkart(
-            @RequestParam(value = "query", required = false, defaultValue = "Samsung Galaxy S24") String query) {
+            @RequestParam(value = "query", required = false, defaultValue = "Samsung Galaxy S24") String query,
+            @RequestParam(value = "endpoint", required = false) String endpoint) {
         PriceProvider provider = providerManager.getProvider("FLIPKART");
         if (provider instanceof FlipkartPriceProvider flipkart) {
+            if (endpoint != null && !endpoint.trim().isEmpty()) {
+                return ResponseEntity.ok(flipkart.testEndpoint(endpoint.trim()));
+            }
             return ResponseEntity.ok(flipkart.diagnoseProvider(query));
         }
         return ResponseEntity.ok(Map.of("error", "Flipkart provider not found"));

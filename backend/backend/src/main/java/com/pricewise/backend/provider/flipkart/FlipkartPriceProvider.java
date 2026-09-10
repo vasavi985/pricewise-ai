@@ -35,8 +35,8 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     @Value("${pricewise.providers.flipkart.host:real-time-flipkart-data2.p.rapidapi.com}")
     private String flipkartApiHost;
 
-    @Value("${pricewise.providers.flipkart.search-path:/search-products}")
-    private String searchPath = "/search-products";
+    @Value("${pricewise.providers.flipkart.search-path:/search}")
+    private String searchPath = "/search";
 
     @Value("${pricewise.providers.flipkart.timeout-seconds:8}")
     private int timeoutSeconds = HARD_TIMEOUT_SECONDS;
@@ -314,8 +314,6 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                         .path(path)
                         .queryParam("query", safeQuery)
                         .queryParam("q", safeQuery)
-                        .queryParam("searchTerm", safeQuery)
-                        .queryParam("keyword", safeQuery)
                         .queryParam("page", "1")
                         .build())
                 .header("x-rapidapi-key", resolveApiKey())
@@ -826,6 +824,46 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         }
 
         return diag;
+    }
+
+    public Map<String, Object> testEndpoint(String pathAndQuery) {
+        String host = resolveApiHost();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("host", host);
+        result.put("target", pathAndQuery);
+        try {
+            String fullUrl = "https://" + host + (pathAndQuery.startsWith("/") ? pathAndQuery : "/" + pathAndQuery);
+            String body = restClient.get()
+                    .uri(fullUrl)
+                    .header("x-rapidapi-key", resolveApiKey())
+                    .header("x-rapidapi-host", host)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PriceWise-AI/1.0")
+                    .retrieve()
+                    .body(String.class);
+            result.put("status", 200);
+            result.put("responseLength", body != null ? body.length() : 0);
+            result.put("snippet", safeSnippet(body, 500));
+            if (body != null && !body.trim().isEmpty()) {
+                List<ProviderProductDTO> parsed = parseSearchResponse(body);
+                result.put("parsedProductCount", parsed.size());
+            }
+        } catch (RestClientResponseException e) {
+            result.put("status", e.getStatusCode().value());
+            result.put("error", safeErrorSummary(e.getResponseBodyAsString()));
+            org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
+            if (headers != null) {
+                headers.forEach((k, v) -> {
+                    if (k.toLowerCase().contains("ratelimit") || k.equalsIgnoreCase("retry-after")) {
+                        result.put(k, v);
+                    }
+                });
+            }
+        } catch (Exception e) {
+            result.put("status", "ERROR");
+            result.put("error", e.getMessage());
+        }
+        return result;
     }
 
     private static String safeSnippet(String text, int maxLen) {
