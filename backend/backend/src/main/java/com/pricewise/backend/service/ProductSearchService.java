@@ -40,12 +40,43 @@ public class ProductSearchService {
         this.priceComparisonService = priceComparisonService;
     }
 
+    private static final long SEARCH_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+    private final Map<String, CachedSearchResult> searchCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static class CachedSearchResult {
+        final ProductSearchResultDTO result;
+        final long timestamp;
+
+        CachedSearchResult(ProductSearchResultDTO result) {
+            this.result = result;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isExpired() {
+            return (System.currentTimeMillis() - timestamp) > SEARCH_CACHE_TTL_MS;
+        }
+    }
+
+    public void clearSearchCache() {
+        searchCache.clear();
+    }
+
     public ProductSearchResultDTO search(String query) {
         String safeQuery = (query != null) ? query.trim() : "";
+        String cacheKey = safeQuery.toLowerCase();
+
+        CachedSearchResult cached = searchCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.debug("Returning cached search results for: '{}' ({} results)", safeQuery, cached.result.getTotalFound());
+            return cached.result;
+        }
+
         log.info("Executing unified multi-provider search for: '{}'", safeQuery);
 
-        // 1. Fetch from registered active providers (AMAZON and FLIPKART)
-        List<ProviderProductDTO> providerResults = providerManager.searchAll(safeQuery);
+        // 1. Fetch from registered active providers (AMAZON and FLIPKART) only when query is present
+        List<ProviderProductDTO> providerResults = safeQuery.isEmpty()
+                ? Collections.emptyList()
+                : providerManager.searchAll(safeQuery);
 
         // 2. Ingest and match results to persistent Product entities
         Set<Long> matchedProductIds = new LinkedHashSet<>();
@@ -86,7 +117,14 @@ public class ProductSearchService {
             });
         }
 
-        return new ProductSearchResultDTO(safeQuery, comparisons, providerManager.getProviderStatuses());
+        ProductSearchResultDTO searchResult = new ProductSearchResultDTO(safeQuery, comparisons, providerManager.getProviderStatuses());
+
+        if (searchCache.size() > 200) {
+            searchCache.clear();
+        }
+        searchCache.put(cacheKey, new CachedSearchResult(searchResult));
+
+        return searchResult;
     }
 
     private volatile boolean legacySynced = false;

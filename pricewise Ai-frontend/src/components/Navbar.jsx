@@ -23,7 +23,7 @@ function Navbar() {
         }
       })
       .catch(() => {});
-  }, [location.pathname, currentUser]);
+  }, [currentUser]);
 
   return (
     <nav className="navbar">
