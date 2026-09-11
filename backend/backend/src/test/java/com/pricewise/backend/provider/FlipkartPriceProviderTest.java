@@ -84,7 +84,7 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("3. Correct authentication headers (x-rapidapi-key, x-rapidapi-host) are sent in API requests")
     void test3_CorrectAuthenticationHeaders() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=iPhone%2015&q=iPhone%2015&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=iPhone%2015&page=1&sort_by=RELEVANCE"))
                 .andExpect(method(HttpMethod.GET))
                 .andExpect(header("x-rapidapi-key", "test-flipkart-rapidapi-key"))
                 .andExpect(header("x-rapidapi-host", "real-time-flipkart-data2.p.rapidapi.com"))
@@ -133,7 +133,7 @@ class FlipkartPriceProviderTest {
                 }
                 """;
 
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=iPhone%2015&q=iPhone%2015&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=iPhone%2015&page=1&sort_by=RELEVANCE"))
                 .andRespond(withSuccess(mockJson, MediaType.APPLICATION_JSON));
 
         List<ProviderProductDTO> results = configuredProvider.searchProducts("iPhone 15");
@@ -235,7 +235,7 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("13. API failure / HTTP 500 error marks provider unavailable and returns empty list safely")
     void test13_ApiFailure() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=error-item&q=error-item&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=error-item&page=1&sort_by=RELEVANCE"))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("{\"message\":\"Internal Server Error\"}"));
 
         List<ProviderProductDTO> res = configuredProvider.searchProducts("error-item");
@@ -260,7 +260,7 @@ class FlipkartPriceProviderTest {
         );
 
         // Don't register response on mockServer or delay response
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=timeout-test&q=timeout-test&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=timeout-test&page=1&sort_by=RELEVANCE"))
                 .andRespond(request -> {
                     try {
                         Thread.sleep(1500); // Exceeds 1s timeout
@@ -280,7 +280,7 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("15. Provider failure isolation: Exception in Flipkart never throws out to caller")
     void test15_FailureIsolation() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=fail&q=fail&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=fail&page=1&sort_by=RELEVANCE"))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
         assertDoesNotThrow(() -> {
@@ -336,7 +336,7 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("18. Diagnostic getLastError is updated and safe without exposing credentials")
     void test18_DiagnosticLastError() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/search?query=diag-test&q=diag-test&page=1"))
+        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=diag-test&page=1&sort_by=RELEVANCE"))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("{\"message\":\"Invalid key=SECRET123\"}"));
 
         configuredProvider.searchProducts("diag-test");
@@ -345,5 +345,49 @@ class FlipkartPriceProviderTest {
         assertTrue(err.contains("401"));
         assertFalse(err.contains("SECRET123"));
         assertTrue(err.contains("REDACTED"));
+    }
+
+    @Test
+    @DisplayName("19. Real Ayush Somani API response parsing with specialPrice, images, and nested rating")
+    void test19_RealAyushSomaniSchemaParsing() {
+        String json = """
+                {
+                  "success": true,
+                  "data": [
+                    {
+                      "pid": "MOBGTAGPAGGMGFAM",
+                      "title": "Apple iPhone 15 (Black, 128 GB)",
+                      "specialPrice": 59999,
+                      "price": 69900,
+                      "images": [
+                        "https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original-imagtc2qzgnnuhxh.jpeg"
+                      ],
+                      "url": "https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4?pid=MOBGTAGPAGGMGFAM",
+                      "rating": {
+                        "overall": [
+                          {
+                            "average": 4.6,
+                            "count": 12000
+                          }
+                        ]
+                      },
+                      "brand": "Apple"
+                    }
+                  ]
+                }
+                """;
+        List<ProviderProductDTO> results = configuredProvider.parseSearchResponse(json);
+        assertNotNull(results);
+        assertEquals(1, results.size());
+
+        ProviderProductDTO p = results.get(0);
+        assertEquals("FLIPKART", p.getStore());
+        assertEquals("MOBGTAGPAGGMGFAM", p.getStoreProductId());
+        assertEquals("Apple iPhone 15 (Black, 128 GB)", p.getTitle());
+        assertEquals(59999.0, p.getPrice());
+        assertEquals(4.6, p.getRating());
+        assertEquals("https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original-imagtc2qzgnnuhxh.jpeg", p.getImageUrl());
+        assertEquals("https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4?pid=MOBGTAGPAGGMGFAM", p.getProductUrl());
+        assertEquals("Apple", p.getBrand());
     }
 }

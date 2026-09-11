@@ -35,8 +35,8 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     @Value("${pricewise.providers.flipkart.host:real-time-flipkart-data2.p.rapidapi.com}")
     private String flipkartApiHost;
 
-    @Value("${pricewise.providers.flipkart.search-path:/search}")
-    private String searchPath = "/search";
+    @Value("${pricewise.providers.flipkart.search-path:/product-search}")
+    private String searchPath = "/product-search";
 
     @Value("${pricewise.providers.flipkart.timeout-seconds:8}")
     private int timeoutSeconds = HARD_TIMEOUT_SECONDS;
@@ -49,35 +49,9 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     private volatile long lastFailureTime = 0;
     private static final long UNAVAILABLE_COOLDOWN_MS = 60 * 1000; // 1-minute auto-recovery window
     private volatile String lastError = null;
-    private volatile String discoveredSearchPath = null;
-
-    public static final List<String> CANDIDATE_SEARCH_PATHS = List.of(
-            "/search-products",
-            "/search_products",
-            "/searchproducts",
-            "/search",
-            "/products",
-            "/product-search",
-            "/products/search",
-            "/search-product",
-            "/items",
-            "/item-search",
-            "/flipkart/search",
-            "/flipkart/products",
-            "/flipkart-search",
-            "/searchByKeyword",
-            "/search_by_keyword",
-            "/api/products",
-            "/api/search",
-            "/v1/products",
-            "/v1/search"
-    );
 
     public String getActiveSearchPath() {
-        if (discoveredSearchPath != null && !discoveredSearchPath.trim().isEmpty()) {
-            return discoveredSearchPath.trim();
-        }
-        return (searchPath != null && !searchPath.trim().isEmpty()) ? searchPath.trim() : "/search";
+        return (searchPath != null && !searchPath.trim().isEmpty()) ? searchPath.trim() : "/product-search";
     }
 
     private final Map<String, CacheEntry> searchCache = new ConcurrentHashMap<>();
@@ -221,7 +195,6 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                 List<ProviderProductDTO> results = parseSearchResponse(response);
                 this.isUnavailable = false;
                 this.lastError = null;
-                this.discoveredSearchPath = currentPath;
 
                 // Cache up to 100 queries
                 if (searchCache.size() > 100) {
@@ -235,32 +208,6 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             } catch (RestClientResponseException e) {
                 String safeSummary = safeErrorSummary(e.getResponseBodyAsString());
                 log.error("Real-Time Flipkart Data API returned HTTP error on path [{}]: status={}, body={}", currentPath, e.getStatusCode(), safeSummary);
-
-                // If primary search endpoint was 404, probe other candidate search paths
-                if (e.getStatusCode().value() == 404) {
-                    for (String candidate : CANDIDATE_SEARCH_PATHS) {
-                        if (!candidate.equalsIgnoreCase(currentPath)) {
-                            try {
-                                log.info("Attempting candidate search endpoint {} on [{}] for query: '{}'", candidate, host, safeQuery);
-                                String candidateResponse = executeSearchRequest(host, candidate, safeQuery);
-                                if (candidateResponse != null && !candidateResponse.trim().isEmpty()) {
-                                    List<ProviderProductDTO> results = parseSearchResponse(candidateResponse);
-                                    this.discoveredSearchPath = candidate;
-                                    this.isUnavailable = false;
-                                    this.lastError = null;
-                                    log.info("Successfully discovered active Flipkart search endpoint '{}' on [{}] (returned {} results)", candidate, host, results.size());
-                                    searchCache.put(cacheKey, new CacheEntry(results));
-                                    return results;
-                                }
-                            } catch (RestClientResponseException candidateEx) {
-                                log.debug("Candidate {} returned HTTP {}", candidate, candidateEx.getStatusCode());
-                            } catch (Exception candidateEx) {
-                                log.debug("Candidate {} failed: {}", candidate, candidateEx.getMessage());
-                            }
-                        }
-                    }
-                }
-
                 this.isUnavailable = true;
                 this.lastFailureTime = System.currentTimeMillis();
                 this.lastError = "HTTP " + e.getStatusCode().value() + " (" + host + " at " + currentPath + "): " + safeSummary;
@@ -307,14 +254,15 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
     }
 
     private String executeSearchRequest(String host, String path, String safeQuery) {
+        String targetPath = (path != null && !path.trim().isEmpty()) ? path.trim() : "/product-search";
         return restClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .scheme("https")
                         .host(host)
-                        .path(path)
-                        .queryParam("query", safeQuery)
+                        .path(targetPath)
                         .queryParam("q", safeQuery)
                         .queryParam("page", "1")
+                        .queryParam("sort_by", "RELEVANCE")
                         .build())
                 .header("x-rapidapi-key", resolveApiKey())
                 .header("x-rapidapi-host", host)
@@ -442,6 +390,16 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
 
         try {
             JsonNode root = objectMapper.readTree(jsonResponse);
+            if (root.has("success") && !root.path("success").asBoolean(true)) {
+                String errorMsg = root.path("message").asText(null);
+                if (errorMsg == null || errorMsg.isEmpty()) {
+                    errorMsg = root.path("error").path("message").asText("Unknown API error");
+                }
+                log.warn("Real-Time Flipkart Data API reported error: {}", errorMsg);
+                this.isUnavailable = true;
+                this.lastError = errorMsg;
+                return Collections.emptyList();
+            }
             String status = root.path("status").asText("OK");
             if ("ERROR".equalsIgnoreCase(status)) {
                 String errorMsg = root.path("message").asText(null);
@@ -450,6 +408,7 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                 }
                 log.warn("Real-Time Flipkart Data API reported error: {}", errorMsg);
                 this.isUnavailable = true;
+                this.lastError = errorMsg;
                 return Collections.emptyList();
             }
 
@@ -523,7 +482,22 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
                     currency = "INR";
                 }
 
-                Double rating = parseRating(extractField(item, "product_rating", "rating", "product_star_rating"));
+                Double rating = null;
+                JsonNode ratingNode = item.path("rating");
+                if (!ratingNode.isMissingNode() && !ratingNode.isNull()) {
+                    if (ratingNode.isNumber()) {
+                        rating = ratingNode.asDouble();
+                    } else if (ratingNode.isObject() && ratingNode.path("overall").isArray() && !ratingNode.path("overall").isEmpty()) {
+                        JsonNode avgNode = ratingNode.path("overall").get(0).path("average");
+                        if (avgNode.isNumber()) rating = avgNode.asDouble();
+                        else rating = parseRating(avgNode.asText(null));
+                    } else if (ratingNode.isTextual()) {
+                        rating = parseRating(ratingNode.asText());
+                    }
+                }
+                if (rating == null) {
+                    rating = parseRating(extractField(item, "product_rating", "rating", "product_star_rating"));
+                }
                 String storeProductId = (rawId != null && !rawId.trim().isEmpty()) ? rawId.trim() : "FK-" + Math.abs(title.hashCode());
                 String brand = extractBrand(title);
                 String canonical = extractCanonicalName(title);
@@ -560,10 +534,10 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
         if (item == null) return null;
 
         String[] priceFields = new String[]{
-                "product_price", "price", "current_price", "special_price",
-                "product_minimum_offer_price", "selling_price", "sellingPrice",
-                "discounted_price", "discountedPrice", "final_price", "offer_price",
-                "mrp", "amount", "value", "val", "cost"
+                "specialPrice", "special_price", "sellingPrice", "selling_price",
+                "discountedPrice", "discounted_price", "final_price", "offer_price",
+                "current_price", "product_price", "price",
+                "product_minimum_offer_price", "mrp", "amount", "value", "val", "cost"
         };
         for (String field : priceFields) {
             JsonNode fn = item.path(field);
@@ -763,64 +737,31 @@ public class FlipkartPriceProvider implements PriceProvider, DisposableBean {
             return diag;
         }
 
-        List<Map<String, Object>> attempts = new ArrayList<>();
-        String workingPath = null;
-        List<ProviderProductDTO> workingProducts = null;
+        String path = getActiveSearchPath();
+        try {
+            long start = System.currentTimeMillis();
+            String response = executeSearchRequest(host, path, safeQuery);
+            long elapsed = System.currentTimeMillis() - start;
+            diag.put("httpStatus", 200);
+            diag.put("elapsedMs", elapsed);
+            diag.put("responseLength", response != null ? response.length() : 0);
+            diag.put("bodySnippet", response != null ? safeSnippet(response, 300) : null);
 
-        for (String candidate : CANDIDATE_SEARCH_PATHS) {
-            Map<String, Object> att = new LinkedHashMap<>();
-            att.put("path", candidate);
-            try {
-                long start = System.currentTimeMillis();
-                String response = executeSearchRequest(host, candidate, safeQuery);
-                long elapsed = System.currentTimeMillis() - start;
-                att.put("status", 200);
-                att.put("elapsedMs", elapsed);
-                att.put("responseLength", response != null ? response.length() : 0);
-                att.put("bodySnippet", response != null ? safeSnippet(response, 300) : null);
-
-                List<ProviderProductDTO> parsed = parseSearchResponse(response);
-                att.put("parsedCount", parsed.size());
-
-                if (!parsed.isEmpty() && workingPath == null) {
-                    workingPath = candidate;
-                    workingProducts = parsed;
-                }
-            } catch (RestClientResponseException e) {
-                att.put("status", e.getStatusCode().value());
-                att.put("error", safeErrorSummary(e.getResponseBodyAsString()));
-                org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
-                if (headers != null) {
-                    if (headers.containsKey("x-ratelimit-requests-limit")) att.put("rateLimit", headers.getFirst("x-ratelimit-requests-limit"));
-                    if (headers.containsKey("x-ratelimit-requests-remaining")) att.put("rateRemaining", headers.getFirst("x-ratelimit-requests-remaining"));
-                    if (headers.containsKey("x-ratelimit-requests-reset")) att.put("rateResetSeconds", headers.getFirst("x-ratelimit-requests-reset"));
-                }
-                attempts.add(att);
-                if (e.getStatusCode().value() == 429) {
-                    // Do not flood provider when 429 rate limited
-                    break;
-                }
-                continue;
-            } catch (Exception e) {
-                att.put("status", "ERROR");
-                att.put("error", e.getMessage());
+            List<ProviderProductDTO> parsed = parseSearchResponse(response);
+            diag.put("parsedProductCount", parsed.size());
+            diag.put("sampleProducts", parsed.stream().limit(3).toList());
+        } catch (RestClientResponseException e) {
+            diag.put("httpStatus", e.getStatusCode().value());
+            diag.put("error", safeErrorSummary(e.getResponseBodyAsString()));
+            org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
+            if (headers != null) {
+                if (headers.containsKey("x-ratelimit-requests-limit")) diag.put("rateLimit", headers.getFirst("x-ratelimit-requests-limit"));
+                if (headers.containsKey("x-ratelimit-requests-remaining")) diag.put("rateRemaining", headers.getFirst("x-ratelimit-requests-remaining"));
+                if (headers.containsKey("x-ratelimit-requests-reset")) diag.put("rateResetSeconds", headers.getFirst("x-ratelimit-requests-reset"));
             }
-            attempts.add(att);
-            if (workingPath != null) {
-                break; // Discovered active working endpoint
-            }
-        }
-
-        diag.put("endpointAttempts", attempts);
-        if (workingPath != null) {
-            this.discoveredSearchPath = workingPath;
-            this.isUnavailable = false;
-            this.lastError = null;
-            diag.put("discoveredWorkingPath", workingPath);
-            diag.put("parsedProductCount", workingProducts.size());
-            diag.put("sampleProducts", workingProducts.stream().limit(3).toList());
-        } else {
-            diag.put("discoveredWorkingPath", null);
+        } catch (Exception e) {
+            diag.put("httpStatus", "ERROR");
+            diag.put("error", e.getMessage());
         }
 
         return diag;
