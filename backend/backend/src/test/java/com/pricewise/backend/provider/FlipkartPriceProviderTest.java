@@ -7,7 +7,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,11 +17,14 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class FlipkartPriceProviderTest {
+
+    private static final String REEFAPI_SEARCH_URL = "https://api.reefapi.com/flipkart/v1/search";
 
     private ObjectMapper objectMapper;
     private RestClient.Builder restClientBuilder;
@@ -41,7 +43,7 @@ class FlipkartPriceProviderTest {
                 objectMapper,
                 RestClient.builder().build(),
                 "",
-                "real-time-flipkart-data2.p.rapidapi.com",
+                REEFAPI_SEARCH_URL,
                 executorService,
                 5
         );
@@ -52,8 +54,8 @@ class FlipkartPriceProviderTest {
         configuredProvider = new FlipkartPriceProvider(
                 objectMapper,
                 restClientBuilder.build(),
-                "test-flipkart-rapidapi-key",
-                "real-time-flipkart-data2.p.rapidapi.com",
+                "test-flipkart-reefapi-key",
+                REEFAPI_SEARCH_URL,
                 executorService,
                 5
         );
@@ -67,28 +69,30 @@ class FlipkartPriceProviderTest {
     }
 
     @Test
-    @DisplayName("1. When FLIPKART_API_KEY is missing, provider reports CONFIG_REQUIRED and is not configured")
+    @DisplayName("1. When REEFAPI_KEY is missing, provider reports CONFIG_REQUIRED and is not configured")
     void test1_MissingApiKey() {
         assertFalse(unconfiguredProvider.isConfigured());
         assertEquals("CONFIG_REQUIRED", unconfiguredProvider.getStoreStatus());
-        assertTrue(unconfiguredProvider.getRequiredConfig().contains("FLIPKART_API_KEY"));
+        assertTrue(unconfiguredProvider.getRequiredConfig().contains("REEFAPI_KEY"));
     }
 
     @Test
-    @DisplayName("2. When FLIPKART_API_KEY is configured, provider reports LIVE and isConfigured=true")
+    @DisplayName("2. When REEFAPI_KEY is configured, provider reports LIVE and isConfigured=true")
     void test2_ConfiguredApiKey() {
         assertTrue(configuredProvider.isConfigured());
         assertEquals("LIVE", configuredProvider.getStoreStatus());
     }
 
     @Test
-    @DisplayName("3. Correct authentication headers (x-rapidapi-key, x-rapidapi-host) are sent in API requests")
-    void test3_CorrectAuthenticationHeaders() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=iPhone%2015&page=1&sort_by=RELEVANCE"))
-                .andExpect(method(HttpMethod.GET))
-                .andExpect(header("x-rapidapi-key", "test-flipkart-rapidapi-key"))
-                .andExpect(header("x-rapidapi-host", "real-time-flipkart-data2.p.rapidapi.com"))
-                .andRespond(withSuccess("{\"status\":\"OK\",\"data\":{\"products\":[]}}", MediaType.APPLICATION_JSON));
+    @DisplayName("3. Correct POST method, endpoint, x-api-key header, and body are sent in ReefAPI search request")
+    void test3_CorrectReefApiPostRequest() {
+        mockServer.expect(requestTo(REEFAPI_SEARCH_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("x-api-key", "test-flipkart-reefapi-key"))
+                .andExpect(header("Content-Type", MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(content().string(containsString("\"q\":\"iPhone 15\"")))
+                .andExpect(content().string(containsString("\"page\":1")))
+                .andRespond(withSuccess("{\"ok\":true,\"data\":{\"results\":[]}}", MediaType.APPLICATION_JSON));
 
         configuredProvider.searchProducts("iPhone 15");
         mockServer.verify();
@@ -111,29 +115,38 @@ class FlipkartPriceProviderTest {
     }
 
     @Test
-    @DisplayName("5. Realistic API response mapping to ProviderProductDTO model")
-    void test5_RealisticApiResponseMapping() {
+    @DisplayName("5. Realistic ReefAPI search response mapping to ProviderProductDTO model")
+    void test5_RealisticReefApiResponseMapping() {
         String mockJson = """
                 {
-                  "status": "OK",
+                  "ok": true,
+                  "meta": {
+                    "api": "flipkart",
+                    "endpoint": "search",
+                    "latency_ms": 120.5,
+                    "record_count": 1
+                  },
                   "data": {
-                    "products": [
+                    "results": [
                       {
                         "product_id": "MOBGTAGPAGGMGFAM",
-                        "product_title": "Apple iPhone 15 (Black, 128 GB)",
-                        "product_price": "₹65,999",
+                        "title": "Apple iPhone 15 (Black, 128 GB)",
+                        "price": 65999,
+                        "mrp": 79900,
                         "currency": "INR",
-                        "product_photo": "https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original-imagtc2qzgnnuhxh.jpeg",
-                        "product_url": "https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4?pid=MOBGTAGPAGGMGFAM",
-                        "product_rating": "4.6",
-                        "product_availability": "IN_STOCK"
+                        "image": "https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original-imagtc2qzgnnuhxh.jpeg",
+                        "url": "https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4?pid=MOBGTAGPAGGMGFAM",
+                        "rating": 4.6,
+                        "availability": "IN_STOCK",
+                        "in_stock": true
                       }
                     ]
                   }
                 }
                 """;
 
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=iPhone%2015&page=1&sort_by=RELEVANCE"))
+        mockServer.expect(requestTo(REEFAPI_SEARCH_URL))
+                .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess(mockJson, MediaType.APPLICATION_JSON));
 
         List<ProviderProductDTO> results = configuredProvider.searchProducts("iPhone 15");
@@ -155,14 +168,14 @@ class FlipkartPriceProviderTest {
     }
 
     @Test
-    @DisplayName("6. Product title extraction handles variations (product_title, title, name)")
+    @DisplayName("6. Product title extraction handles variations (title, product_title, name)")
     void test6_ProductTitleExtraction() {
-        String json1 = "{\"data\":{\"products\":[{\"title\":\"Samsung Galaxy S24\",\"price\":\"₹64,999\"}]}}";
+        String json1 = "{\"ok\":true,\"data\":{\"results\":[{\"title\":\"Samsung Galaxy S24\",\"price\":64999}]}}";
         List<ProviderProductDTO> res1 = configuredProvider.parseSearchResponse(json1);
         assertEquals(1, res1.size());
         assertEquals("Samsung Galaxy S24", res1.get(0).getTitle());
 
-        String json2 = "{\"products\":[{\"name\":\"OnePlus 12R\",\"price\":\"₹39,999\"}]}";
+        String json2 = "{\"ok\":true,\"data\":{\"products\":[{\"name\":\"OnePlus 12R\",\"price\":39999}]}}";
         List<ProviderProductDTO> res2 = configuredProvider.parseSearchResponse(json2);
         assertEquals(1, res2.size());
         assertEquals("OnePlus 12R", res2.get(0).getTitle());
@@ -186,25 +199,25 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("8. Currency extraction defaults to INR if not specified")
     void test8_CurrencyExtraction() {
-        String json = "{\"data\":{\"products\":[{\"title\":\"Laptop\",\"price\":\"50000\"}]}}";
+        String json = "{\"ok\":true,\"data\":{\"results\":[{\"title\":\"Laptop\",\"price\":50000}]}}";
         List<ProviderProductDTO> res = configuredProvider.parseSearchResponse(json);
         assertEquals(1, res.size());
         assertEquals("INR", res.get(0).getCurrency());
     }
 
     @Test
-    @DisplayName("9. Product image extraction handles product_photo, product_image, and thumbnail")
+    @DisplayName("9. Product image extraction handles image, images array, and thumbnail")
     void test9_ImageExtraction() {
-        String json = "{\"data\":{\"products\":[{\"title\":\"Mouse\",\"price\":\"500\",\"thumbnail\":\"https://img.flipkart.com/thumb.jpg\"}]}}";
+        String json = "{\"ok\":true,\"data\":{\"results\":[{\"title\":\"Mouse\",\"price\":500,\"image\":\"https://img.flipkart.com/mouse.jpg\"}]}}";
         List<ProviderProductDTO> res = configuredProvider.parseSearchResponse(json);
         assertEquals(1, res.size());
-        assertEquals("https://img.flipkart.com/thumb.jpg", res.get(0).getImageUrl());
+        assertEquals("https://img.flipkart.com/mouse.jpg", res.get(0).getImageUrl());
     }
 
     @Test
     @DisplayName("10. Product URL extraction maps real Flipkart URLs")
     void test10_ProductUrlExtraction() {
-        String json = "{\"data\":{\"products\":[{\"title\":\"Keyboard\",\"price\":\"1500\",\"product_url\":\"https://www.flipkart.com/keyboard/p/itm123\"}]}}";
+        String json = "{\"ok\":true,\"data\":{\"results\":[{\"title\":\"Keyboard\",\"price\":1500,\"url\":\"https://www.flipkart.com/keyboard/p/itm123\"}]}}";
         List<ProviderProductDTO> res = configuredProvider.parseSearchResponse(json);
         assertEquals(1, res.size());
         assertEquals("https://www.flipkart.com/keyboard/p/itm123", res.get(0).getProductUrl());
@@ -213,30 +226,34 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("11. Product ID / FSN extraction from product_id or pid")
     void test11_ProductIdExtraction() {
-        String json = "{\"data\":{\"products\":[{\"title\":\"Earbuds\",\"price\":\"2000\",\"pid\":\"ACC123456789\"}]}}";
+        String json = "{\"ok\":true,\"data\":{\"results\":[{\"title\":\"Earbuds\",\"price\":2000,\"product_id\":\"ACC123456789\"}]}}";
         List<ProviderProductDTO> res = configuredProvider.parseSearchResponse(json);
         assertEquals(1, res.size());
         assertEquals("ACC123456789", res.get(0).getStoreProductId());
     }
 
     @Test
-    @DisplayName("12. Empty response from API returns empty list gracefully")
+    @DisplayName("12. Empty or error response from ReefAPI returns empty list gracefully")
     void test12_EmptyResponse() {
         List<ProviderProductDTO> r1 = configuredProvider.parseSearchResponse("");
         assertTrue(r1.isEmpty());
 
-        List<ProviderProductDTO> r2 = configuredProvider.parseSearchResponse("{\"data\":{\"products\":[]}}");
+        List<ProviderProductDTO> r2 = configuredProvider.parseSearchResponse("{\"ok\":true,\"data\":{\"results\":[]}}");
         assertTrue(r2.isEmpty());
 
         List<ProviderProductDTO> r3 = configuredProvider.parseSearchResponse("{}");
         assertTrue(r3.isEmpty());
+
+        List<ProviderProductDTO> r4 = configuredProvider.parseSearchResponse("{\"ok\":false,\"error\":{\"code\":\"MISSING_PARAM\",\"message\":\"missing: q\"}}");
+        assertTrue(r4.isEmpty());
     }
 
     @Test
     @DisplayName("13. API failure / HTTP 500 error marks provider unavailable and returns empty list safely")
     void test13_ApiFailure() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=error-item&page=1&sort_by=RELEVANCE"))
-                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("{\"message\":\"Internal Server Error\"}"));
+        mockServer.expect(requestTo(REEFAPI_SEARCH_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("{\"ok\":false,\"error\":{\"message\":\"Internal Server Error\"}}"));
 
         List<ProviderProductDTO> res = configuredProvider.searchProducts("error-item");
         assertNotNull(res);
@@ -249,23 +266,22 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("14. Timeout handling: Provider respects timeout and returns empty list without hanging")
     void test14_TimeoutHandling() {
-        // Create a provider with 1-second timeout
         FlipkartPriceProvider slowProvider = new FlipkartPriceProvider(
                 objectMapper,
                 restClientBuilder.build(),
                 "test-key",
-                "real-time-flipkart-data2.p.rapidapi.com",
+                REEFAPI_SEARCH_URL,
                 executorService,
                 1
         );
 
-        // Don't register response on mockServer or delay response
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=timeout-test&page=1&sort_by=RELEVANCE"))
+        mockServer.expect(requestTo(REEFAPI_SEARCH_URL))
+                .andExpect(method(HttpMethod.POST))
                 .andRespond(request -> {
                     try {
-                        Thread.sleep(1500); // Exceeds 1s timeout
+                        Thread.sleep(1500);
                     } catch (InterruptedException ignored) {}
-                    return withSuccess("{\"status\":\"OK\"}", MediaType.APPLICATION_JSON).createResponse(request);
+                    return withSuccess("{\"ok\":true}", MediaType.APPLICATION_JSON).createResponse(request);
                 });
 
         long start = System.currentTimeMillis();
@@ -280,7 +296,8 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("15. Provider failure isolation: Exception in Flipkart never throws out to caller")
     void test15_FailureIsolation() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=fail&page=1&sort_by=RELEVANCE"))
+        mockServer.expect(requestTo(REEFAPI_SEARCH_URL))
+                .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
         assertDoesNotThrow(() -> {
@@ -302,13 +319,16 @@ class FlipkartPriceProviderTest {
     void test17_NestedPriceAndSellingPrice() {
         String json1 = """
                 {
-                  "items": [
-                    {
-                      "title": "Samsung Galaxy S24",
-                      "selling_price": 62999,
-                      "product_id": "FSN123"
-                    }
-                  ]
+                  "ok": true,
+                  "data": {
+                    "results": [
+                      {
+                        "title": "Samsung Galaxy S24",
+                        "selling_price": 62999,
+                        "product_id": "FSN123"
+                      }
+                    ]
+                  }
                 }
                 """;
         List<ProviderProductDTO> r1 = configuredProvider.parseSearchResponse(json1);
@@ -317,6 +337,7 @@ class FlipkartPriceProviderTest {
 
         String json2 = """
                 {
+                  "ok": true,
                   "data": {
                     "search_results": [
                       {
@@ -336,8 +357,9 @@ class FlipkartPriceProviderTest {
     @Test
     @DisplayName("18. Diagnostic getLastError is updated and safe without exposing credentials")
     void test18_DiagnosticLastError() {
-        mockServer.expect(requestTo("https://real-time-flipkart-data2.p.rapidapi.com/product-search?q=diag-test&page=1&sort_by=RELEVANCE"))
-                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("{\"message\":\"Invalid key=SECRET123\"}"));
+        mockServer.expect(requestTo(REEFAPI_SEARCH_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("{\"ok\":false,\"error\":{\"message\":\"Invalid key=SECRET123\"}}"));
 
         configuredProvider.searchProducts("diag-test");
         String err = configuredProvider.getLastError();
@@ -348,32 +370,51 @@ class FlipkartPriceProviderTest {
     }
 
     @Test
-    @DisplayName("19. Real Ayush Somani API response parsing with specialPrice, images, and nested rating")
-    void test19_RealAyushSomaniSchemaParsing() {
+    @DisplayName("19. Real ReefAPI documented Flipkart search response parsing (Acer Aspire Lite)")
+    void test19_RealReefApiSchemaParsing() {
         String json = """
                 {
-                  "success": true,
-                  "data": [
-                    {
-                      "pid": "MOBGTAGPAGGMGFAM",
-                      "title": "Apple iPhone 15 (Black, 128 GB)",
-                      "specialPrice": 59999,
-                      "price": 69900,
-                      "images": [
-                        "https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original-imagtc2qzgnnuhxh.jpeg"
-                      ],
-                      "url": "https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4?pid=MOBGTAGPAGGMGFAM",
-                      "rating": {
-                        "overall": [
-                          {
-                            "average": 4.6,
-                            "count": 12000
-                          }
-                        ]
-                      },
-                      "brand": "Apple"
-                    }
-                  ]
+                  "ok": true,
+                  "meta": {
+                    "api": "flipkart",
+                    "endpoint": "search",
+                    "mode": "live",
+                    "latency_ms": 1743.3,
+                    "record_count": 24,
+                    "cache_hit": false
+                  },
+                  "data": {
+                    "results": [
+                      {
+                        "product_id": "COMH2TPSVSGUVKY4",
+                        "listing_id": "LSTCOMH2TPSVSGUVKY4MJENVA",
+                        "itm_id": "itm1bc0bcb4598e7",
+                        "title": "Acer Aspire Lite AMD Ryzen 3 Quad Core 5400U - (8 GB/256 GB SSD/Windows 11 Home) AL15-41 Thin and Light Laptop",
+                        "subtitle": "15.6 Inch, Steel Grey, 1.59 Kg",
+                        "url": "https://www.flipkart.com/acer-aspire-lite-amd-ryzen-3-quad-core-5400u-8-gb-256-gb-ssd-windows-11-home-al15-41-thin-light-laptop/p/itm1bc0bcb4598e7?pid=COMH2TPSVSGUVKY4",
+                        "price": 39990,
+                        "mrp": 44990,
+                        "discount_percent": 11,
+                        "currency": "INR",
+                        "rating": 4.2,
+                        "rating_count": 129,
+                        "review_count": 13,
+                        "images": [
+                          "http://rukmini1.flixcart.com/image/832/832/xif0q/computer/u/p/m/-original-imah2pf2u98xefzx.jpeg?q=70"
+                        ],
+                        "image": "http://rukmini1.flixcart.com/image/832/832/xif0q/computer/u/p/m/-original-imah2pf2u98xefzx.jpeg?q=70",
+                        "availability": "IN_STOCK",
+                        "in_stock": true,
+                        "key_specs": [
+                          "AMD Ryzen 3 Quad Core Processor",
+                          "8 GB DDR4 RAM",
+                          "Windows 11 Operating System"
+                        ],
+                        "vertical": "computer",
+                        "flipkart_advantage": true
+                      }
+                    ]
+                  }
                 }
                 """;
         List<ProviderProductDTO> results = configuredProvider.parseSearchResponse(json);
@@ -382,12 +423,12 @@ class FlipkartPriceProviderTest {
 
         ProviderProductDTO p = results.get(0);
         assertEquals("FLIPKART", p.getStore());
-        assertEquals("MOBGTAGPAGGMGFAM", p.getStoreProductId());
-        assertEquals("Apple iPhone 15 (Black, 128 GB)", p.getTitle());
-        assertEquals(59999.0, p.getPrice());
-        assertEquals(4.6, p.getRating());
-        assertEquals("https://rukminim2.flixcart.com/image/832/832/xif0q/mobile/h/d/9/-original-imagtc2qzgnnuhxh.jpeg", p.getImageUrl());
-        assertEquals("https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4?pid=MOBGTAGPAGGMGFAM", p.getProductUrl());
-        assertEquals("Apple", p.getBrand());
+        assertEquals("COMH2TPSVSGUVKY4", p.getStoreProductId());
+        assertEquals("Acer Aspire Lite AMD Ryzen 3 Quad Core 5400U - (8 GB/256 GB SSD/Windows 11 Home) AL15-41 Thin and Light Laptop", p.getTitle());
+        assertEquals(39990.0, p.getPrice());
+        assertEquals(4.2, p.getRating());
+        assertEquals("http://rukmini1.flixcart.com/image/832/832/xif0q/computer/u/p/m/-original-imah2pf2u98xefzx.jpeg?q=70", p.getImageUrl());
+        assertEquals("https://www.flipkart.com/acer-aspire-lite-amd-ryzen-3-quad-core-5400u-8-gb-256-gb-ssd-windows-11-home-al15-41-thin-light-laptop/p/itm1bc0bcb4598e7?pid=COMH2TPSVSGUVKY4", p.getProductUrl());
+        assertEquals("Acer", p.getBrand());
     }
 }
